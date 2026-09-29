@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{27B24C7B-DF90-4EA5-8573-9119C027079A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MechanicsSoftware.BillingService.Api", "src\MechanicsSoftware.BillingService.Api\MechanicsSoftware.BillingService.Api.csproj", "{A6E79DAE-0393-4972-9A50-B8C0B8069CFB}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{3C50EF73-F5F1-4B90-93E4-B355AF825AF1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MechanicsSoftware.BillingService.UnitTests", "tests\MechanicsSoftware.BillingService.UnitTests\MechanicsSoftware.BillingService.UnitTests.csproj", "{99963945-A92F-44BD-97A1-A8099DF9495E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A6E79DAE-0393-4972-9A50-B8C0B8069CFB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A6E79DAE-0393-4972-9A50-B8C0B8069CFB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A6E79DAE-0393-4972-9A50-B8C0B8069CFB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A6E79DAE-0393-4972-9A50-B8C0B8069CFB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{99963945-A92F-44BD-97A1-A8099DF9495E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{99963945-A92F-44BD-97A1-A8099DF9495E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{99963945-A92F-44BD-97A1-A8099DF9495E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{99963945-A92F-44BD-97A1-A8099DF9495E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A6E79DAE-0393-4972-9A50-B8C0B8069CFB} = {27B24C7B-DF90-4EA5-8573-9119C027079A}
+		{99963945-A92F-44BD-97A1-A8099DF9495E} = {3C50EF73-F5F1-4B90-93E4-B355AF825AF1}
+	EndGlobalSection
+EndGlobal
