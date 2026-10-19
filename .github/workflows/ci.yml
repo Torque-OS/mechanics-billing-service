@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build, Test & Docker Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage"
+
+      # TODO(F4-30): add SonarQube (or similar) quality gate once the service has real code.
+
+      - name: Build Docker image
+        run: docker build -t mechanics-billing-service:ci .
+
+      # TODO(F4-33): push image and deploy to Kubernetes once the cluster/secrets are wired.

@@ -1,0 +1,42 @@
+services:
+  billing-api:
+    build: .
+    ports:
+      - "8081:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=billing;Username=postgres;Password=postgres
+      ConnectionStrings__Mongo: mongodb://mongo:27017
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: billing
+    ports:
+      - "5436:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d billing"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - billing_pgdata:/var/lib/postgresql/data
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27018:27017"
+    volumes:
+      - billing_mongodata:/data/db
+
+volumes:
+  billing_pgdata:
+  billing_mongodata:

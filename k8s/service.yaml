@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mechanics-billing-api
+  namespace: mechanics-billing
+  labels:
+    app: mechanics-billing-api
+spec:
+  type: ClusterIP
+  selector:
+    app: mechanics-billing-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
