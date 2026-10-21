@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MechanicsSoftware.BillingService.Domain\MechanicsSoftware.BillingService.Domain.csproj" />
+    <ProjectReference Include="..\MechanicsSoftware.BillingService.Application\MechanicsSoftware.BillingService.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.16" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MechanicsSoftware.BillingService.UnitTests" />
+  </ItemGroup>
+
+</Project>

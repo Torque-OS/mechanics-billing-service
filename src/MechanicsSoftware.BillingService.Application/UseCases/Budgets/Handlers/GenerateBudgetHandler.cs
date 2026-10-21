@@ -1,0 +1,47 @@
+using MechanicsSoftware.BillingService.Application.Abstractions;
+using MechanicsSoftware.BillingService.Application.UseCases.Budgets.Commands;
+using MechanicsSoftware.BillingService.Domain.Entities;
+using MechanicsSoftware.BillingService.Domain.Exceptions;
+using MechanicsSoftware.BillingService.Domain.ValueObjects;
+
+namespace MechanicsSoftware.BillingService.Application.UseCases.Budgets.Handlers;
+
+public sealed class GenerateBudgetHandler(IBillingDbContext db, IBudgetEventPublisher publisher)
+{
+    public async Task<BudgetResponse?> ExecuteAsync(
+        GenerateBudgetCommand command, CancellationToken cancellationToken = default)
+    {
+        var existing = await db.Budgets.FindByServiceOrderAsync(command.ServiceOrderId, cancellationToken);
+        if (existing is not null)
+            return BudgetResponse.From(existing);
+
+        Budget budget;
+        try
+        {
+            budget = Budget.Create(command.ServiceOrderId, ToDrafts(command.Items));
+        }
+        catch (DomainException exception)
+        {
+            await publisher.PublishBudgetFailedAsync(command.ServiceOrderId, exception.Message, cancellationToken);
+            return null;
+        }
+
+        db.Budgets.Add(budget);
+        await db.SaveChangesAsync(cancellationToken);
+
+        await publisher.PublishBudgetGeneratedAsync(budget, cancellationToken);
+
+        return BudgetResponse.From(budget);
+    }
+
+    private static List<BudgetItemDraft> ToDrafts(IReadOnlyList<GenerateBudgetItem>? items) =>
+        items?
+            .Select(item => new BudgetItemDraft(
+                item.Type,
+                item.ReferenceId,
+                item.Description,
+                new Money(item.UnitPriceInCents),
+                item.Quantity))
+            .ToList()
+        ?? [];
+}
