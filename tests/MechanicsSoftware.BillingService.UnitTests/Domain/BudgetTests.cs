@@ -14,7 +14,7 @@ public class BudgetTests
     {
         var serviceOrderId = Guid.NewGuid();
 
-        var budget = Budget.Create(serviceOrderId, [
+        var budget = Budget.Create(serviceOrderId, Guid.NewGuid(), [
             BudgetFixtures.ServiceDraft(unitPriceInCents: 15000, quantity: 1),
             BudgetFixtures.PartDraft(unitPriceInCents: 4500, quantity: 2)
         ]);
@@ -34,7 +34,7 @@ public class BudgetTests
     {
         var draft = BudgetFixtures.PartDraft(unitPriceInCents: 4500, quantity: 2) with { Description = "  Oil filter  " };
 
-        var budget = Budget.Create(Guid.NewGuid(), [BudgetFixtures.ServiceDraft(), draft]);
+        var budget = Budget.Create(Guid.NewGuid(), Guid.NewGuid(), [BudgetFixtures.ServiceDraft(), draft]);
         var item = budget.Items.Single(i => i.Type == BudgetItemType.Part);
 
         item.Id.Should().NotBeEmpty();
@@ -48,15 +48,43 @@ public class BudgetTests
     [Fact]
     public void Create_EmptyServiceOrderId_ThrowsDomainException()
     {
-        var act = () => Budget.Create(Guid.Empty, [BudgetFixtures.ServiceDraft()]);
+        var act = () => Budget.Create(Guid.Empty, Guid.NewGuid(), [BudgetFixtures.ServiceDraft()]);
 
         act.Should().Throw<DomainException>().WithMessage("ServiceOrderId is required.");
     }
 
     [Fact]
+    public void Create_EmptyCustomerId_ThrowsDomainException()
+    {
+        var act = () => Budget.Create(Guid.NewGuid(), Guid.Empty, [BudgetFixtures.ServiceDraft()]);
+
+        act.Should().Throw<DomainException>().WithMessage("CustomerId is required.");
+    }
+
+    [Fact]
+    public void Create_ValidItems_KeepsCustomerId()
+    {
+        var customerId = Guid.NewGuid();
+
+        var budget = BudgetFixtures.CreateBudget(customerId: customerId);
+
+        budget.CustomerId.Should().Be(customerId);
+    }
+
+    [Fact]
+    public void BelongsTo_OwnerAndOtherCustomer_ComparesCustomerId()
+    {
+        var customerId = Guid.NewGuid();
+        var budget = BudgetFixtures.CreateBudget(customerId: customerId);
+
+        budget.BelongsTo(customerId).Should().BeTrue();
+        budget.BelongsTo(Guid.NewGuid()).Should().BeFalse();
+    }
+
+    [Fact]
     public void Create_NoItems_ThrowsDomainException()
     {
-        var act = () => Budget.Create(Guid.NewGuid(), []);
+        var act = () => Budget.Create(Guid.NewGuid(), Guid.NewGuid(), []);
 
         act.Should().Throw<DomainException>().WithMessage("*at least one item*");
     }
@@ -64,7 +92,7 @@ public class BudgetTests
     [Fact]
     public void Create_NullItems_ThrowsDomainException()
     {
-        var act = () => Budget.Create(Guid.NewGuid(), null!);
+        var act = () => Budget.Create(Guid.NewGuid(), Guid.NewGuid(), null!);
 
         act.Should().Throw<DomainException>().WithMessage("*at least one item*");
     }
@@ -72,7 +100,7 @@ public class BudgetTests
     [Fact]
     public void Create_OnlyPartItems_ThrowsDomainException()
     {
-        var act = () => Budget.Create(Guid.NewGuid(), [BudgetFixtures.PartDraft()]);
+        var act = () => Budget.Create(Guid.NewGuid(), Guid.NewGuid(), [BudgetFixtures.PartDraft()]);
 
         act.Should().Throw<DomainException>().WithMessage("*at least one service item*");
     }
@@ -80,7 +108,7 @@ public class BudgetTests
     [Fact]
     public void Create_NullItemAmongItems_ThrowsDomainException()
     {
-        var act = () => Budget.Create(Guid.NewGuid(), [BudgetFixtures.ServiceDraft(), null!]);
+        var act = () => Budget.Create(Guid.NewGuid(), Guid.NewGuid(), [BudgetFixtures.ServiceDraft(), null!]);
 
         act.Should().Throw<DomainException>().WithMessage("Budget item is required.");
     }
@@ -90,7 +118,7 @@ public class BudgetTests
     {
         var invalid = BudgetFixtures.PartDraft() with { Type = (BudgetItemType)42 };
 
-        var act = () => Budget.Create(Guid.NewGuid(), [BudgetFixtures.ServiceDraft(), invalid]);
+        var act = () => Budget.Create(Guid.NewGuid(), Guid.NewGuid(), [BudgetFixtures.ServiceDraft(), invalid]);
 
         act.Should().Throw<DomainException>().WithMessage("*type '42' is invalid*");
     }
@@ -100,7 +128,7 @@ public class BudgetTests
     {
         var invalid = BudgetFixtures.ServiceDraft() with { ReferenceId = Guid.Empty };
 
-        var act = () => Budget.Create(Guid.NewGuid(), [invalid]);
+        var act = () => Budget.Create(Guid.NewGuid(), Guid.NewGuid(), [invalid]);
 
         act.Should().Throw<DomainException>().WithMessage("*reference id is required*");
     }
@@ -112,7 +140,7 @@ public class BudgetTests
     {
         var invalid = BudgetFixtures.ServiceDraft() with { Description = description };
 
-        var act = () => Budget.Create(Guid.NewGuid(), [invalid]);
+        var act = () => Budget.Create(Guid.NewGuid(), Guid.NewGuid(), [invalid]);
 
         act.Should().Throw<DomainException>().WithMessage("*description is required*");
     }
@@ -122,7 +150,7 @@ public class BudgetTests
     {
         var invalid = BudgetFixtures.ServiceDraft() with { UnitPrice = null! };
 
-        var act = () => Budget.Create(Guid.NewGuid(), [invalid]);
+        var act = () => Budget.Create(Guid.NewGuid(), Guid.NewGuid(), [invalid]);
 
         act.Should().Throw<DomainException>().WithMessage("*unit price is required*");
     }
@@ -134,7 +162,7 @@ public class BudgetTests
     {
         var invalid = BudgetFixtures.ServiceDraft(quantity: quantity);
 
-        var act = () => Budget.Create(Guid.NewGuid(), [invalid]);
+        var act = () => Budget.Create(Guid.NewGuid(), Guid.NewGuid(), [invalid]);
 
         act.Should().Throw<DomainException>().WithMessage("*quantity must be greater than zero*");
     }

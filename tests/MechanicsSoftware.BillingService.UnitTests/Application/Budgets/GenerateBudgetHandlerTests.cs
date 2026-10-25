@@ -18,12 +18,12 @@ public class GenerateBudgetHandlerTests
     {
         await using var db = InMemoryDbContextHelper.Create();
         var serviceOrderId = Guid.NewGuid();
-        var command = new GenerateBudgetCommand(serviceOrderId, [
+        var command = new GenerateBudgetCommand(serviceOrderId, Guid.NewGuid(), [
             BudgetFixtures.ServiceItem(unitPriceInCents: 15000, quantity: 1),
             BudgetFixtures.PartItem(unitPriceInCents: 4500, quantity: 2)
         ]);
 
-        var result = await new GenerateBudgetHandler(db, _publisher.Object).ExecuteAsync(command);
+        var result = (await new GenerateBudgetHandler(db, _publisher.Object).ExecuteAsync(command)).Budget;
 
         result.Should().NotBeNull();
         result!.ServiceOrderId.Should().Be(serviceOrderId);
@@ -39,15 +39,30 @@ public class GenerateBudgetHandlerTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_ValidCommand_ReturnsCreatedWithCustomerId()
+    {
+        await using var db = InMemoryDbContextHelper.Create();
+        var customerId = Guid.NewGuid();
+        var command = new GenerateBudgetCommand(Guid.NewGuid(), customerId, [BudgetFixtures.ServiceItem()]);
+
+        var result = await new GenerateBudgetHandler(db, _publisher.Object).ExecuteAsync(command);
+
+        result.Created.Should().BeTrue();
+        result.FailureReason.Should().BeNull();
+        result.Budget!.CustomerId.Should().Be(customerId);
+        (await db.Budgets.SingleAsync()).CustomerId.Should().Be(customerId);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_ValidCommand_PublishesBudgetGenerated()
     {
         await using var db = InMemoryDbContextHelper.Create();
-        var command = new GenerateBudgetCommand(Guid.NewGuid(), [BudgetFixtures.ServiceItem()]);
+        var command = new GenerateBudgetCommand(Guid.NewGuid(), Guid.NewGuid(), [BudgetFixtures.ServiceItem()]);
 
         var result = await new GenerateBudgetHandler(db, _publisher.Object).ExecuteAsync(command);
 
         _publisher.Verify(p => p.PublishBudgetGeneratedAsync(
-            It.Is<Budget>(b => b.Id == result!.Id), It.IsAny<CancellationToken>()), Times.Once);
+            It.Is<Budget>(b => b.Id == result.Budget!.Id), It.IsAny<CancellationToken>()), Times.Once);
         _publisher.Verify(p => p.PublishBudgetFailedAsync(
             It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -59,26 +74,28 @@ public class GenerateBudgetHandlerTests
         var existing = BudgetFixtures.CreateBudget();
         db.Budgets.Add(existing);
         await db.SaveChangesAsync();
-        var command = new GenerateBudgetCommand(existing.ServiceOrderId, [BudgetFixtures.ServiceItem(unitPriceInCents: 1)]);
+        var command = new GenerateBudgetCommand(existing.ServiceOrderId, Guid.NewGuid(), [BudgetFixtures.ServiceItem(unitPriceInCents: 1)]);
 
         var result = await new GenerateBudgetHandler(db, _publisher.Object).ExecuteAsync(command);
 
-        result!.Id.Should().Be(existing.Id);
-        result.TotalInCents.Should().Be(existing.Total.Cents);
+        result.Created.Should().BeFalse();
+        result.Budget!.Id.Should().Be(existing.Id);
+        result.Budget.TotalInCents.Should().Be(existing.Total.Cents);
         (await db.Budgets.CountAsync()).Should().Be(1);
         _publisher.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task ExecuteAsync_NoServiceItem_PublishesBudgetFailedAndReturnsNull()
+    public async Task ExecuteAsync_NoServiceItem_PublishesBudgetFailedAndReturnsRejected()
     {
         await using var db = InMemoryDbContextHelper.Create();
         var serviceOrderId = Guid.NewGuid();
-        var command = new GenerateBudgetCommand(serviceOrderId, [BudgetFixtures.PartItem()]);
+        var command = new GenerateBudgetCommand(serviceOrderId, Guid.NewGuid(), [BudgetFixtures.PartItem()]);
 
         var result = await new GenerateBudgetHandler(db, _publisher.Object).ExecuteAsync(command);
 
-        result.Should().BeNull();
+        result.Failed.Should().BeTrue();
+        result.FailureReason.Should().Contain("at least one service item");
         (await db.Budgets.AnyAsync()).Should().BeFalse();
         _publisher.Verify(p => p.PublishBudgetFailedAsync(
             serviceOrderId,
@@ -93,11 +110,11 @@ public class GenerateBudgetHandlerTests
     {
         await using var db = InMemoryDbContextHelper.Create();
         var serviceOrderId = Guid.NewGuid();
-        var command = new GenerateBudgetCommand(serviceOrderId, [BudgetFixtures.ServiceItem(unitPriceInCents: -10)]);
+        var command = new GenerateBudgetCommand(serviceOrderId, Guid.NewGuid(), [BudgetFixtures.ServiceItem(unitPriceInCents: -10)]);
 
         var result = await new GenerateBudgetHandler(db, _publisher.Object).ExecuteAsync(command);
 
-        result.Should().BeNull();
+        result.Failed.Should().BeTrue();
         _publisher.Verify(p => p.PublishBudgetFailedAsync(
             serviceOrderId,
             It.Is<string>(reason => reason.Contains("negative")),
@@ -109,11 +126,11 @@ public class GenerateBudgetHandlerTests
     {
         await using var db = InMemoryDbContextHelper.Create();
         var serviceOrderId = Guid.NewGuid();
-        var command = new GenerateBudgetCommand(serviceOrderId, null!);
+        var command = new GenerateBudgetCommand(serviceOrderId, Guid.NewGuid(), null!);
 
         var result = await new GenerateBudgetHandler(db, _publisher.Object).ExecuteAsync(command);
 
-        result.Should().BeNull();
+        result.Failed.Should().BeTrue();
         _publisher.Verify(p => p.PublishBudgetFailedAsync(
             serviceOrderId,
             It.Is<string>(reason => reason.Contains("at least one item")),

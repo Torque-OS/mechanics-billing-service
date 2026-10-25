@@ -31,6 +31,13 @@ public sealed class BudgetConfiguration : IEntityTypeConfiguration<Budget>
             .IsUnique()
             .HasDatabaseName("ux_budgets_service_order_id");
 
+        builder.Property(b => b.CustomerId)
+            .HasColumnName("customer_id")
+            .IsRequired();
+
+        builder.HasIndex(b => b.CustomerId)
+            .HasDatabaseName("ix_budgets_customer_id");
+
         builder.Property(b => b.Total)
             .HasConversion(m => m.Cents, v => new Money(v))
             .HasColumnName("total")

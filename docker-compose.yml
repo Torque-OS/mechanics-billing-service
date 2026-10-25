@@ -8,6 +8,7 @@ services:
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=billing;Username=postgres;Password=postgres
       ConnectionStrings__Mongo: mongodb://mongo:27017
+      JWT_SECRET: dev-secret-change-in-production-min-32-chars!!
     depends_on:
       postgres:
         condition: service_healthy

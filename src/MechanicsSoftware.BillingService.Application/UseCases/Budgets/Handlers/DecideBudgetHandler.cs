@@ -1,4 +1,5 @@
 using MechanicsSoftware.BillingService.Application.Abstractions;
+using MechanicsSoftware.BillingService.Application.Exceptions;
 using MechanicsSoftware.BillingService.Application.UseCases.Budgets.Commands;
 using MechanicsSoftware.BillingService.Domain.Exceptions;
 
@@ -13,6 +14,9 @@ public sealed class DecideBudgetHandler(IBillingDbContext db, IBudgetEventPublis
             throw new DomainException($"Budget decision '{command.Decision}' is invalid.");
 
         var budget = await db.Budgets.FindWithItemsAsync(command.BudgetId, cancellationToken);
+
+        if (!command.Requester.IsStaff && !budget.BelongsTo(command.Requester.UserId))
+            throw new ForbiddenException("Customers can only decide their own budgets.");
 
         if (command.Decision == BudgetDecision.Approve)
             budget.Approve();

@@ -9,6 +9,7 @@ public sealed class Budget : Entity<Guid>
     private readonly List<BudgetItem> _items = [];
 
     public Guid ServiceOrderId { get; private set; }
+    public Guid CustomerId { get; private set; }
     public Money Total { get; private set; } = null!;
     public BudgetStatus Status { get; private set; } = null!;
     public DateTime CreatedAt { get; private set; }
@@ -18,10 +19,13 @@ public sealed class Budget : Entity<Guid>
 
     private Budget() { }
 
-    public static Budget Create(Guid serviceOrderId, IReadOnlyCollection<BudgetItemDraft> items)
+    public static Budget Create(Guid serviceOrderId, Guid customerId, IReadOnlyCollection<BudgetItemDraft> items)
     {
         if (serviceOrderId == Guid.Empty)
             throw new DomainException("ServiceOrderId is required.");
+
+        if (customerId == Guid.Empty)
+            throw new DomainException("CustomerId is required.");
 
         if (items is null || items.Count == 0)
             throw new DomainException("A budget requires at least one item.");
@@ -33,6 +37,7 @@ public sealed class Budget : Entity<Guid>
         {
             Id = Guid.NewGuid(),
             ServiceOrderId = serviceOrderId,
+            CustomerId = customerId,
             Status = BudgetStatus.CreatePending(),
             CreatedAt = DateTime.UtcNow
         };
@@ -42,6 +47,8 @@ public sealed class Budget : Entity<Guid>
 
         return budget;
     }
+
+    public bool BelongsTo(Guid customerId) => CustomerId == customerId;
 
     public void Approve() => Decide(BudgetStatus.Status.Approved);
 

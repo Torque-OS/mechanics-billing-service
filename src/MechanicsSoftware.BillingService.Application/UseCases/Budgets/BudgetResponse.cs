@@ -5,6 +5,7 @@ namespace MechanicsSoftware.BillingService.Application.UseCases.Budgets;
 public sealed record BudgetResponse(
     Guid Id,
     Guid ServiceOrderId,
+    Guid CustomerId,
     string Status,
     int TotalInCents,
     string TotalFormatted,
@@ -16,6 +17,7 @@ public sealed record BudgetResponse(
         new(
             budget.Id,
             budget.ServiceOrderId,
+            budget.CustomerId,
             budget.Status.ToString(),
             budget.Total.Cents,
             budget.Total.ToFormatted(),

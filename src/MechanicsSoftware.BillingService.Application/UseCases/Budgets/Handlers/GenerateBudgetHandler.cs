@@ -8,22 +8,22 @@ namespace MechanicsSoftware.BillingService.Application.UseCases.Budgets.Handlers
 
 public sealed class GenerateBudgetHandler(IBillingDbContext db, IBudgetEventPublisher publisher)
 {
-    public async Task<BudgetResponse?> ExecuteAsync(
+    public async Task<GenerateBudgetResult> ExecuteAsync(
         GenerateBudgetCommand command, CancellationToken cancellationToken = default)
     {
         var existing = await db.Budgets.FindByServiceOrderAsync(command.ServiceOrderId, cancellationToken);
         if (existing is not null)
-            return BudgetResponse.From(existing);
+            return GenerateBudgetResult.Existing(BudgetResponse.From(existing));
 
         Budget budget;
         try
         {
-            budget = Budget.Create(command.ServiceOrderId, ToDrafts(command.Items));
+            budget = Budget.Create(command.ServiceOrderId, command.CustomerId, ToDrafts(command.Items));
         }
         catch (DomainException exception)
         {
             await publisher.PublishBudgetFailedAsync(command.ServiceOrderId, exception.Message, cancellationToken);
-            return null;
+            return GenerateBudgetResult.Rejected(exception.Message);
         }
 
         db.Budgets.Add(budget);
@@ -31,7 +31,7 @@ public sealed class GenerateBudgetHandler(IBillingDbContext db, IBudgetEventPubl
 
         await publisher.PublishBudgetGeneratedAsync(budget, cancellationToken);
 
-        return BudgetResponse.From(budget);
+        return GenerateBudgetResult.Generated(BudgetResponse.From(budget));
     }
 
     private static List<BudgetItemDraft> ToDrafts(IReadOnlyList<GenerateBudgetItem>? items) =>

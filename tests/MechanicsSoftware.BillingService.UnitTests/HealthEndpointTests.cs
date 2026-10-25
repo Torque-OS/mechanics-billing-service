@@ -1,15 +1,15 @@
 using System.Net;
 using FluentAssertions;
-using Microsoft.AspNetCore.Mvc.Testing;
+using MechanicsSoftware.BillingService.UnitTests.Helpers;
 
 namespace MechanicsSoftware.BillingService.UnitTests;
 
 public class HealthEndpointTests
 {
     [Fact]
-    public async Task Health_ReturnsOk()
+    public async Task Health_WithoutToken_ReturnsOk()
     {
-        await using var factory = new WebApplicationFactory<Program>();
+        await using var factory = new BillingApiFactory();
         var client = factory.CreateClient();
 
         var response = await client.GetAsync("/health");
