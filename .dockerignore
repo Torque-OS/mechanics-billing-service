@@ -1,0 +1,9 @@
+**/bin
+**/obj
+.git
+.gitignore
+.github/
+.config/
+tests/
+k8s/
+*.md
