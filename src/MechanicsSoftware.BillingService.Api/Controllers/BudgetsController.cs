@@ -1,4 +1,4 @@
-using System.IdentityModel.Tokens.Jwt;
+using MechanicsSoftware.BillingService.Api.Extensions;
 using MechanicsSoftware.BillingService.Api.Transport.Budgets;
 using MechanicsSoftware.BillingService.Application.UseCases.Budgets;
 using MechanicsSoftware.BillingService.Application.UseCases.Budgets.Commands;
@@ -70,12 +70,8 @@ public class BudgetsController(
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Decide(Guid id, BudgetDecisionRequest request, CancellationToken cancellationToken)
     {
-        if (!Guid.TryParse(User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value, out var userId))
+        if (User.ToRequester() is not { } requester)
             return Forbid();
-
-        var requester = User.IsInRole(Policies.CustomerRole)
-            ? BudgetRequester.Customer(userId)
-            : BudgetRequester.Staff(userId);
 
         return Ok(await decideHandler.ExecuteAsync(
             new DecideBudgetCommand(id, request.Decision, requester), cancellationToken));
