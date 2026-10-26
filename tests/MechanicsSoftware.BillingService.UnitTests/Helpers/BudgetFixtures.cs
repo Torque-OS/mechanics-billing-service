@@ -18,6 +18,13 @@ public static class BudgetFixtures
     public static Budget CreateBudget(Guid? serviceOrderId = null, Guid? customerId = null) =>
         Budget.Create(serviceOrderId ?? Guid.NewGuid(), customerId ?? Guid.NewGuid(), [ServiceDraft(), PartDraft()]);
 
+    public static Budget CreateApprovedBudget(Guid? customerId = null)
+    {
+        var budget = CreateBudget(customerId: customerId);
+        budget.Approve();
+        return budget;
+    }
+
     public static GenerateBudgetItem ServiceItem(int unitPriceInCents = 15000, int quantity = 1) =>
         new(BudgetItemType.Service, Guid.NewGuid(), "Oil change", unitPriceInCents, quantity);
 

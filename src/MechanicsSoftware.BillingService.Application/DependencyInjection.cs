@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using MechanicsSoftware.BillingService.Application.UseCases.Budgets.Handlers;
+using MechanicsSoftware.BillingService.Application.UseCases.Payments;
+using MechanicsSoftware.BillingService.Application.UseCases.Payments.Handlers;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace MechanicsSoftware.BillingService.Application;
@@ -14,6 +16,13 @@ public static class DependencyInjection
         services.AddScoped<DecideBudgetHandler>();
         services.AddScoped<GetBudgetHandler>();
         services.AddScoped<GetBudgetByServiceOrderHandler>();
+
+        // Payments
+        services.AddScoped<PaymentSynchronizer>();
+        services.AddScoped<CreatePaymentHandler>();
+        services.AddScoped<GetPaymentHandler>();
+        services.AddScoped<VerifyPaymentHandler>();
+        services.AddScoped<HandleMercadoPagoNotificationHandler>();
 
         return services;
     }

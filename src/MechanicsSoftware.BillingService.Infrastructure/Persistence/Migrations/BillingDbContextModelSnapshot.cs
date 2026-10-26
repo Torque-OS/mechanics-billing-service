@@ -66,6 +66,74 @@ namespace MechanicsSoftware.BillingService.Infrastructure.Persistence.Migrations
                     b.ToTable("budgets", (string)null);
                 });
 
+            modelBuilder.Entity("MechanicsSoftware.BillingService.Domain.Entities.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Amount")
+                        .HasColumnType("integer")
+                        .HasColumnName("amount");
+
+                    b.Property<Guid>("BudgetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("budget_id");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("confirmed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<DateTime?>("FailedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("failed_at");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<string>("ProviderOrderId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("provider_order_id");
+
+                    b.Property<string>("QrData")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("qr_data");
+
+                    b.Property<Guid>("ServiceOrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("service_order_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BudgetId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_payments_budget_id");
+
+                    b.HasIndex("ProviderOrderId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_payments_provider_order_id");
+
+                    b.ToTable("payments", (string)null);
+                });
+
             modelBuilder.Entity("MechanicsSoftware.BillingService.Domain.Entities.Budget", b =>
                 {
                     b.OwnsMany("MechanicsSoftware.BillingService.Domain.Entities.BudgetItem", "Items", b1 =>
@@ -114,6 +182,15 @@ namespace MechanicsSoftware.BillingService.Infrastructure.Persistence.Migrations
                         });
 
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("MechanicsSoftware.BillingService.Domain.Entities.Payment", b =>
+                {
+                    b.HasOne("MechanicsSoftware.BillingService.Domain.Entities.Budget", null)
+                        .WithMany()
+                        .HasForeignKey("BudgetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

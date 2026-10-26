@@ -5,7 +5,10 @@ using MechanicsSoftware.BillingService.Domain.Exceptions;
 
 namespace MechanicsSoftware.BillingService.Api.Middleware;
 
-/// <summary>Same error contract as mechanics-software: <c>{ "error": "..." }</c> with 403/404/409/422/500.</summary>
+/// <summary>
+/// Same error contract as mechanics-software: <c>{ "error": "..." }</c> with 401/403/404/409/422/500,
+/// plus 502 when the payment provider fails.
+/// </summary>
 [ExcludeFromCodeCoverage]
 public sealed partial class ExceptionHandlingMiddleware(
     RequestDelegate next, ILogger<ExceptionHandlingMiddleware> logger)
@@ -27,6 +30,8 @@ public sealed partial class ExceptionHandlingMiddleware(
         var (statusCode, message) = exception switch
         {
             NotFoundException notFound => (StatusCodes.Status404NotFound, notFound.Message),
+            InvalidWebhookSignatureException invalidSignature => (StatusCodes.Status401Unauthorized, invalidSignature.Message),
+            PaymentProviderException provider => (StatusCodes.Status502BadGateway, LogProviderFailure(provider)),
             ForbiddenException forbidden => (StatusCodes.Status403Forbidden, forbidden.Message),
             ConflictException conflict => (StatusCodes.Status409Conflict, conflict.Message),
             DomainException domain => (StatusCodes.Status422UnprocessableEntity, domain.Message),
@@ -43,6 +48,16 @@ public sealed partial class ExceptionHandlingMiddleware(
         await context.Response.WriteAsync(body);
     }
 
+    // Provider details (status codes, Mercado Pago error bodies) go to the log, not to the client.
+    private string LogProviderFailure(PaymentProviderException exception)
+    {
+        LogPaymentProviderFailure(exception);
+        return "Payment provider unavailable. Try again later.";
+    }
+
     [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception")]
     private partial void LogUnhandledException(Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Payment provider failure")]
+    private partial void LogPaymentProviderFailure(Exception exception);
 }

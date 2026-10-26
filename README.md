@@ -17,10 +17,14 @@ This repo owns its own data — **no other service may query this database direc
 ## Status
 
 - **Budgets (F4-14): done.** Generate from the service order snapshot, approve/reject, query.
-- **Saga messaging: interim.** Events (`BudgetGenerated`, `BudgetFailed`, `BudgetApproved`, `BudgetRejected`)
+- **Payments with Mercado Pago (F4-15): done.** Dynamic QR via the Orders API, signed webhook, verification
+  against Mercado Pago, raw notifications in MongoDB.
+- **Saga messaging: interim.** Events (`BudgetGenerated`, `BudgetFailed`, `BudgetApproved`, `BudgetRejected`,
+  `PaymentConfirmed`, `PaymentFailed`)
   are written as structured logs by `LoggingBudgetEventPublisher` until the broker (F4-08) and the
   MassTransit consumers/outbox (F4-13) exist. Until then, budgets are generated over HTTP.
-- **Payments / Mercado Pago (F4-15+), MongoDB, API Gateway route and deploy (F4-33): not started.**
+- **Refund / cancellation compensations (F4-16/17), API Gateway route and deploy (F4-33): not started.**
+  Until the gateway route exists, Mercado Pago webhooks only reach a local stack through a tunnel (see below).
 
 See the [Fase 4 board](https://github.com/orgs/Torque-OS/projects/4).
 
@@ -52,6 +56,11 @@ Errors use `{ "error": "..." }`.
 | `GET` | `/api/budgets/{id}` | Staff | `200` · `404` |
 | `GET` | `/api/budgets?serviceOrderId={id}` | Staff | `200` · `404` · `400` without the parameter |
 | `POST` | `/api/budgets/{id}/decision` | Customer (own budget) or staff | `200` · `403` another customer's budget · `404` · `409` already decided |
+| `POST` | `/api/payments` | Customer (own budget) or staff | `201` new payment with `qrData` · `200` existing one for the budget · `409` budget not approved · `502` Mercado Pago failure |
+| `GET` | `/api/payments/{id}` | Staff | `200` · `404` |
+| `POST` | `/api/payments/{id}/verify` | Staff | `200` after re-reading the order from Mercado Pago · `502` |
+| `GET` | `/api/payments/{id}/qr.png` | **Public** | `200` QR image to scan · `409` payment no longer pending |
+| `POST` | `/api/payments/webhooks/mercadopago` | **Mercado Pago** (`x-signature`) | `200` · `401` invalid signature |
 
 ```http
 POST /api/budgets
@@ -76,6 +85,42 @@ event: the OS Service moves the order to `AWAITING_APPROVAL` and e-mails the cus
 > the Billing Service checks that a customer only decides their own budget (there is no access to the OS
 > database, ADR-012). Without it, generation fails with `BudgetFailed` and the Saga cancels the order.
 
+## Payments (Mercado Pago)
+
+```
+POST /api/payments { "budgetId": "<approved budget>" }
+  → Mercado Pago POST /v1/orders (type qr, mode dynamic, 15 min) → qrData
+GET /api/payments/{id}/qr.png → customer scans with the Mercado Pago app and pays
+Mercado Pago → POST /api/payments/webhooks/mercadopago (topic "Order")
+  → signature checked → raw body stored in MongoDB (mercadopago_notifications)
+  → GET /v1/orders/{id}: processed → CONFIRMED + PaymentConfirmed · expired/canceled/failed → FAILED + PaymentFailed
+```
+
+- **The webhook body is never trusted**: the outcome always comes from `GET /v1/orders/{id}`. Repeated or
+  out-of-order notifications are harmless — a payment changes status (and publishes an event) only once.
+- `POST /api/payments/{id}/verify` does the same check on demand, for when a webhook does not arrive.
+- `qr.png` is public on purpose (like the OS status link): the id is an unguessable GUID and the image only
+  lets someone pay this charge.
+- One payment per budget, for the approved total. An expired QR fails the payment (and, through the Saga,
+  the order) — see F4-16/17 for compensations.
+
+### Sandbox setup (once)
+
+1. Mercado Pago **Your integrations** → create an application → copy the **test** Access Token.
+2. Create the **test users** (seller and buyer); log in to the Mercado Pago app with the **buyer**.
+3. `cp env.example .env`, paste the token, then run `scripts/setup-mercadopago-sandbox.sh` (creates the store and the POS).
+4. Start a tunnel to the local API: `cloudflared tunnel --url http://localhost:8081` and, in **Webhooks**, set
+   `<tunnel-url>/api/payments/webhooks/mercadopago` with the topic **Order (Mercado Pago)**; copy the
+   **secret signature** into `.env`. The tunnel URL changes on every run.
+5. `docker compose up --build`, approve a budget, `POST /api/payments`, open `qr.png` and pay with the buyer account.
+6. Use **Simulate** in the Webhooks panel to check URL + secret (expect `200 {"outcome":"Ignored"}`).
+
+> **Sandbox limitation:** the test **seller** account (the owner of the test Access Token, who receives the payment)
+> cannot configure webhooks, so a real test purchase does not notify your application. After paying, either call
+> `POST /api/payments/{id}/verify`, or use **Simulate** with the real order id (`providerOrderId`) as *Data ID* — the
+> notification is signed by Mercado Pago and the service confirms the payment from `GET /v1/orders/{id}`.
+> Note: Mercado Pago signs `data.id` exactly as received (upper-case `ORD…`), not lower-cased as the docs state.
+
 ## Configuration
 
 | Variable | Required | Description |
@@ -83,9 +128,15 @@ event: the OS Service moves the order to `AWAITING_APPROVAL` and e-mails the cus
 | `ConnectionStrings__DefaultConnection` | Yes | PostgreSQL (`billing` database) |
 | `JWT_SECRET` | Yes | **Must match `mechanics-software` and `mechanics-lambda`** |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | No | Default `torque-os` / `mechanics-software-api` — must match the token issuers |
+| `ConnectionStrings__Mongo` | Yes | MongoDB for raw Mercado Pago notifications (database from the URL, default `billing`) |
+| `MERCADOPAGO_ACCESS_TOKEN` | For payments | Access Token (test credentials in sandbox). Missing → payment calls return `502` |
+| `MERCADOPAGO_WEBHOOK_SECRET` | For webhooks | Secret signature of the webhook. Missing → every notification is rejected (`401`) |
+| `MERCADOPAGO_EXTERNAL_POS_ID` | For payments | `external_id` of the POS (`TORQUEOSPOS001` from the setup script) |
+| `MERCADOPAGO_QR_EXPIRATION` | No | ISO-8601 duration, default `PT15M` |
 
 Development values live in `appsettings.Development.json` and `docker-compose.yml`; production values come
-from `k8s/secret.yaml` (rendered from CI secrets).
+from `k8s/secret.yaml` (rendered from CI secrets). **Mercado Pago credentials are never in versioned files**:
+locally they live in `.env` (gitignored, read by docker compose; template in `env.example`).
 
 ## Database migrations
 
@@ -110,10 +161,11 @@ Domain, application and persistence tests, plus endpoint tests that run the real
 ## Project layout
 
 ```
-src/MechanicsSoftware.BillingService.Domain/          Budget aggregate, value objects, policies (no framework dependencies)
+src/MechanicsSoftware.BillingService.Domain/          Budget and Payment aggregates, value objects, policies (no framework dependencies)
 src/MechanicsSoftware.BillingService.Application/     Commands, handlers, queries, abstractions
-src/MechanicsSoftware.BillingService.Infrastructure/  EF Core (PostgreSQL), migrations, JWT, interim event publisher
+src/MechanicsSoftware.BillingService.Infrastructure/  EF Core (PostgreSQL), MongoDB, Mercado Pago client, migrations, JWT, interim event publishers
 src/MechanicsSoftware.BillingService.Api/             Controllers, middleware, Swagger, composition root
+scripts/setup-mercadopago-sandbox.sh                  One-time sandbox store + POS creation
 tests/MechanicsSoftware.BillingService.UnitTests/
 k8s/                                        Namespace, Deployment, Service, ConfigMap, Secret, HPA
 .github/workflows/ci.yml                    Build, test, Docker build (SonarQube + deploy: F4-30/F4-33)
