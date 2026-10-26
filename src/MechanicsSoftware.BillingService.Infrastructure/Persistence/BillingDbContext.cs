@@ -10,6 +10,7 @@ public sealed class BillingDbContext : DbContext, IBillingDbContext
     public BillingDbContext(DbContextOptions<BillingDbContext> options) : base(options) { }
 
     public DbSet<Budget> Budgets { get; set; } = null!;
+    public DbSet<Payment> Payments { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
