@@ -81,10 +81,11 @@ public sealed class MercadoPagoClient(HttpClient http, MercadoPagoOptions option
                     $"Mercado Pago {operation} failed with {(int)response.StatusCode}: {Truncate(error)}");
             }
 
+            var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
             OrderBody? order;
             try
             {
-                order = await response.Content.ReadFromJsonAsync<OrderBody>(Json, cancellationToken);
+                order = JsonSerializer.Deserialize<OrderBody>(rawJson, Json);
             }
             catch (JsonException exception)
             {
@@ -94,7 +95,7 @@ public sealed class MercadoPagoClient(HttpClient http, MercadoPagoOptions option
             if (order?.Id is null || order.Status is null)
                 throw new PaymentProviderException($"Mercado Pago {operation} returned no order id/status.");
 
-            return new MercadoPagoOrder(order.Id, order.Status, order.StatusDetail, order.TypeResponse?.QrData);
+            return new MercadoPagoOrder(order.Id, order.Status, order.StatusDetail, order.TypeResponse?.QrData, rawJson);
         }
     }
 

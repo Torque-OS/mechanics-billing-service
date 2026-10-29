@@ -19,18 +19,17 @@ This repo owns its own data — **no other service may query this database direc
 - **Budgets (F4-14): done.** Generate from the service order snapshot, approve/reject, query.
 - **Payments with Mercado Pago (F4-15): done.** Dynamic QR via the Orders API, signed webhook, verification
   against Mercado Pago, raw notifications in MongoDB.
-- **Saga messaging: interim.** Events (`BudgetGenerated`, `BudgetFailed`, `BudgetApproved`, `BudgetRejected`,
-  `PaymentConfirmed`, `PaymentFailed`)
-  are written as structured logs by `LoggingBudgetEventPublisher` until the broker (F4-08) and the
-  MassTransit consumers/outbox (F4-13) exist. Until then, budgets are generated over HTTP.
-- **Refund / cancellation compensations (F4-16/17), API Gateway route and deploy (F4-33): not started.**
+- **Saga events published (F4-16): done.** MassTransit v8 + RabbitMQ with a transactional outbox — see
+  [Saga messages](#saga-messages). Payment history in MongoDB (`payment_events`). Consuming them in the OS Service
+  is F4-13; until then budgets are generated over HTTP and the OS is not updated automatically.
+- **Refund / cancellation compensations (F4-17), API Gateway route and deploy (F4-33): not started.**
   Until the gateway route exists, Mercado Pago webhooks only reach a local stack through a tunnel (see below).
 
 See the [Fase 4 board](https://github.com/orgs/Torque-OS/projects/4).
 
 ## Stack
 
-C# 12 · ASP.NET Core 8 · PostgreSQL 16 · MongoDB · RabbitMQ + MassTransit (planned, ADR-011) · xUnit + FluentAssertions
+C# 12 · ASP.NET Core 8 · PostgreSQL 16 · MongoDB · RabbitMQ + MassTransit 8.5 (ADR-011) · xUnit + FluentAssertions
 
 ## Running locally
 
@@ -39,9 +38,10 @@ docker compose up --build
 ```
 
 The API listens on `http://localhost:8081`, with `GET /health` for a liveness check. PostgreSQL is exposed on `5436` and MongoDB on `27018` to avoid clashing with `mechanics-software`'s own local stack.
+RabbitMQ runs on the default `5672`, with the management UI at `http://localhost:15672` (`guest` / `guest`).
 Migrations are applied on startup.
 
-Without Docker for the API: `docker compose up postgres -d`, then
+Without Docker for the API: `docker compose up postgres mongo rabbitmq -d`, then
 `dotnet run --project src/MechanicsSoftware.BillingService.Api` (Swagger at `/swagger` in Development).
 
 ## Endpoints
@@ -102,7 +102,7 @@ Mercado Pago → POST /api/payments/webhooks/mercadopago (topic "Order")
 - `qr.png` is public on purpose (like the OS status link): the id is an unguessable GUID and the image only
   lets someone pay this charge.
 - One payment per budget, for the approved total. An expired QR fails the payment (and, through the Saga,
-  the order) — see F4-16/17 for compensations.
+  the order) — see F4-17 for compensations.
 
 ### Sandbox setup (once)
 
@@ -121,6 +121,37 @@ Mercado Pago → POST /api/payments/webhooks/mercadopago (topic "Order")
 > notification is signed by Mercado Pago and the service confirms the payment from `GET /v1/orders/{id}`.
 > Note: Mercado Pago signs `data.id` exactly as received (upper-case `ORD…`), not lower-cased as the docs state.
 
+## Saga messages
+
+The Billing Service **publishes** these events (ADR-011) with MassTransit 8.5 over RabbitMQ. They go through the
+**EF Core transactional outbox**: the message is stored in PostgreSQL in the same transaction as the state change and
+delivered after it commits — a crash never loses an event, and a rolled-back change never emits one.
+
+| Message (`TorqueOS.Contracts.Billing`) | Fields | Published when |
+|---|---|---|
+| `BudgetGenerated` | `ServiceOrderId`, `BudgetId`, `TotalInCents`, `OccurredAt` | budget created |
+| `BudgetFailed` | `ServiceOrderId`, `Reason`, `OccurredAt` | snapshot rejected (e.g. no service item) |
+| `BudgetApproved` | `ServiceOrderId`, `BudgetId`, `OccurredAt` | customer/staff approved |
+| `BudgetRejected` | `ServiceOrderId`, `BudgetId`, `OccurredAt` | customer/staff rejected |
+| `PaymentConfirmed` | `ServiceOrderId`, `PaymentId`, `BudgetId`, `AmountInCents`, `OccurredAt` | Mercado Pago `processed` |
+| `PaymentFailed` | `ServiceOrderId`, `PaymentId`, `BudgetId`, `Reason`, `OccurredAt` | order `expired` / `canceled` / `failed` |
+
+**For consumers (OS Service, F4-13):**
+
+- Declare **records with exactly this namespace, name and fields** — MassTransit identifies a message by
+  `urn:message:TorqueOS.Contracts.Billing:<Name>` (pinned by `SagaContractTests`). Copy them from
+  `src/MechanicsSoftware.BillingService.Application/Contracts/`.
+- Each message has its own fanout exchange named `TorqueOS.Contracts.Billing:<Name>`; a MassTransit consumer of the
+  same type binds its queue automatically.
+- Envelope: `CorrelationId` = `ServiceOrderId`; `MessageId` is unique per message — **deduplicate on it**
+  (delivery is at-least-once).
+- Money in cents (`int`), timestamps in UTC.
+- Evolution: fields are only ever added. A breaking change gets a new type (e.g. `PaymentConfirmedV2`).
+
+**Payment history:** every payment transition (`created`, `confirmed`, `failed`) is appended to MongoDB
+`payment_events` with the Mercado Pago order as read at that moment (`providerSnapshot`). Raw webhook bodies stay in
+`mercadopago_notifications`.
+
 ## Configuration
 
 | Variable | Required | Description |
@@ -128,7 +159,8 @@ Mercado Pago → POST /api/payments/webhooks/mercadopago (topic "Order")
 | `ConnectionStrings__DefaultConnection` | Yes | PostgreSQL (`billing` database) |
 | `JWT_SECRET` | Yes | **Must match `mechanics-software` and `mechanics-lambda`** |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | No | Default `torque-os` / `mechanics-software-api` — must match the token issuers |
-| `ConnectionStrings__Mongo` | Yes | MongoDB for raw Mercado Pago notifications (database from the URL, default `billing`) |
+| `ConnectionStrings__Mongo` | Yes | MongoDB: raw Mercado Pago notifications and payment history (database from the URL, default `billing`) |
+| `RABBITMQ_CONNECTION_STRING` | Yes | `amqp://user:password@host:5672/` — Saga broker (ADR-011) |
 | `MERCADOPAGO_ACCESS_TOKEN` | For payments | Access Token (test credentials in sandbox). Missing → payment calls return `502` |
 | `MERCADOPAGO_WEBHOOK_SECRET` | For webhooks | Secret signature of the webhook. Missing → every notification is rejected (`401`) |
 | `MERCADOPAGO_EXTERNAL_POS_ID` | For payments | `external_id` of the POS (`TORQUEOSPOS001` from the setup script) |

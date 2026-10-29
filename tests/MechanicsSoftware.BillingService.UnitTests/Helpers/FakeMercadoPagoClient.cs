@@ -27,7 +27,7 @@ public sealed class FakeMercadoPagoClient : IMercadoPagoClient
 
         lock (CreateCalls) CreateCalls.Add((request, idempotencyKey));
         var id = "ORD" + Guid.NewGuid().ToString("N")[..26].ToUpperInvariant();
-        var order = new MercadoPagoOrder(id, "created", "created", $"00020101021243650016com.mercadolibre-{id}");
+        var order = new MercadoPagoOrder(id, "created", "created", $"00020101021243650016com.mercadolibre-{id}", Raw(id, "created"));
         _orders[id] = order;
         return Task.FromResult(order);
     }
@@ -41,5 +41,7 @@ public sealed class FakeMercadoPagoClient : IMercadoPagoClient
     }
 
     public void SetStatus(string orderId, string status, string? statusDetail = null) =>
-        _orders[orderId] = _orders[orderId] with { Status = status, StatusDetail = statusDetail ?? status };
+        _orders[orderId] = _orders[orderId] with { Status = status, StatusDetail = statusDetail ?? status, RawJson = Raw(orderId, status) };
+
+    private static string Raw(string id, string status) => $"{{\"id\":\"{id}\",\"status\":\"{status}\"}}";
 }

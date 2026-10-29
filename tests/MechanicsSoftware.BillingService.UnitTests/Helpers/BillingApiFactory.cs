@@ -7,13 +7,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace MechanicsSoftware.BillingService.UnitTests.Helpers;
 
 /// <summary>
 /// Hosts the real API pipeline (auth, policies, middleware, controllers, webhook signature validation)
-/// over EF InMemory, an in-memory notification store, a fake Mercado Pago and recording publishers —
-/// no PostgreSQL, MongoDB, broker or network needed.
+/// over EF InMemory, in-memory notification store and payment history, a fake Mercado Pago and recording
+/// publishers — no PostgreSQL, MongoDB, RabbitMQ or network needed.
 /// </summary>
 public sealed class BillingApiFactory : WebApplicationFactory<Program>
 {
@@ -25,6 +26,7 @@ public sealed class BillingApiFactory : WebApplicationFactory<Program>
     public RecordingPaymentEventPublisher PaymentEvents { get; } = new();
     public FakeMercadoPagoClient MercadoPago { get; } = new();
     public InMemoryNotificationStore Notifications { get; } = new();
+    public InMemoryPaymentHistory History { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -33,6 +35,7 @@ public sealed class BillingApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("ConnectionStrings:Mongo", "mongodb://unused-in-tests:27017/billing");
         builder.UseSetting("JWT_SECRET", TestTokens.Secret);
         builder.UseSetting("MERCADOPAGO_WEBHOOK_SECRET", WebhookSecret);
+        builder.UseSetting("RABBITMQ_CONNECTION_STRING", "amqp://guest:guest@unused-in-tests:5672/");
 
         builder.ConfigureTestServices(services =>
         {
@@ -51,6 +54,13 @@ public sealed class BillingApiFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<INotificationStore>();
             services.AddSingleton<INotificationStore>(Notifications);
+
+            services.RemoveAll<IPaymentHistory>();
+            services.AddSingleton<IPaymentHistory>(History);
+
+            // No broker or PostgreSQL here: drop MassTransit's bus and outbox-delivery hosted services.
+            // Publishing is covered by the recording publishers above and by SagaContractTests (test harness).
+            services.RemoveAll<IHostedService>();
         });
     }
 }

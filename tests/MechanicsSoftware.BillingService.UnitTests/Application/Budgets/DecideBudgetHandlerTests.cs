@@ -124,4 +124,28 @@ public class DecideBudgetHandlerTests
         budget.Status.Value.Should().Be(BudgetStatus.Status.Pending);
         _publisher.VerifyNoOtherCalls();
     }
+
+    [Fact]
+    public async Task ExecuteAsync_PublishesBeforeCommit_SoTheOutboxSharesTheDecisionTransaction()
+    {
+        var databaseName = Guid.NewGuid().ToString();
+        await using var db = InMemoryDbContextHelper.Create(databaseName);
+        var budget = await SeedBudgetAsync(db);
+        string? committedStatusWhenPublished = null;
+        _publisher
+            .Setup(p => p.PublishBudgetApprovedAsync(It.IsAny<Budget>(), It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                using var other = InMemoryDbContextHelper.Create(databaseName);
+                committedStatusWhenPublished = other.Budgets.Single(b => b.Id == budget.Id).Status.ToString();
+            })
+            .Returns(Task.CompletedTask);
+
+        await new DecideBudgetHandler(db, _publisher.Object)
+            .ExecuteAsync(new DecideBudgetCommand(budget.Id, BudgetDecision.Approve, BudgetFixtures.StaffRequester));
+
+        committedStatusWhenPublished.Should().Be("PENDING");
+        await using var after = InMemoryDbContextHelper.Create(databaseName);
+        after.Budgets.Single(b => b.Id == budget.Id).Status.ToString().Should().Be("APPROVED");
+    }
 }
