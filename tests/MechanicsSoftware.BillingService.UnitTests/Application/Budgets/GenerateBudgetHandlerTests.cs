@@ -136,4 +136,17 @@ public class GenerateBudgetHandlerTests
             It.Is<string>(reason => reason.Contains("at least one item")),
             It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task ExecuteAsync_InvalidSnapshot_SavesChangesSoTheOutboxedBudgetFailedIsSent()
+    {
+        var counter = new SaveChangesCounter();
+        await using var db = InMemoryDbContextHelper.Create(interceptor: counter);
+        var command = new GenerateBudgetCommand(Guid.NewGuid(), Guid.NewGuid(), [BudgetFixtures.PartItem()]);
+
+        var result = await new GenerateBudgetHandler(db, _publisher.Object).ExecuteAsync(command);
+
+        result.Failed.Should().BeTrue();
+        counter.Count.Should().Be(1);
+    }
 }

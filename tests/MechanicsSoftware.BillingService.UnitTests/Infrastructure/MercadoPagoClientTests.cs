@@ -46,7 +46,7 @@ public class MercadoPagoClientTests
 
         var order = await client.CreateQrOrderAsync(Request, "idem-key-1");
 
-        order.Should().Be(new MercadoPagoOrder("ORD01ABC", "created", "created", "00020101021243650016com.mercadolibre"));
+        order.Should().Be(new MercadoPagoOrder("ORD01ABC", "created", "created", "00020101021243650016com.mercadolibre", OrderJson));
         handler.Request!.Method.Should().Be(HttpMethod.Post);
         handler.Request.RequestUri.Should().Be(new Uri("https://api.mercadopago.com/v1/orders"));
         handler.Request.Headers.Authorization!.ToString().Should().Be("Bearer TEST-token");

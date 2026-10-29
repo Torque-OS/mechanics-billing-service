@@ -17,4 +17,5 @@ public sealed record MercadoPagoQrOrderRequest(string ExternalReference, Money A
 
 /// <param name="Status">Order status as returned by Mercado Pago (e.g. <c>created</c>, <c>processed</c>, <c>expired</c>).</param>
 /// <param name="QrData">EMVCo payload to render as a QR image; present on dynamic QR creation.</param>
-public sealed record MercadoPagoOrder(string Id, string Status, string? StatusDetail, string? QrData);
+/// <param name="RawJson">Response body as received, kept for the payment history.</param>
+public sealed record MercadoPagoOrder(string Id, string Status, string? StatusDetail, string? QrData, string? RawJson = null);

@@ -19,12 +19,13 @@ public class PaymentHandlersTests
     private readonly Mock<IPaymentEventPublisher> _publisher = new();
     private readonly Mock<IWebhookSignatureValidator> _signature = new();
     private readonly Mock<INotificationStore> _store = new();
+    private readonly InMemoryPaymentHistory _history = new();
 
     public PaymentHandlersTests() =>
         _signature.Setup(v => v.IsValid(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>())).Returns(true);
 
-    private CreatePaymentHandler CreateHandler(BillingDbContext db) => new(db, _mercadoPago);
-    private PaymentSynchronizer Synchronizer(BillingDbContext db) => new(db, _mercadoPago, _publisher.Object);
+    private CreatePaymentHandler CreateHandler(BillingDbContext db) => new(db, _mercadoPago, _history);
+    private PaymentSynchronizer Synchronizer(BillingDbContext db) => new(db, _mercadoPago, _publisher.Object, _history);
     private HandleMercadoPagoNotificationHandler NotificationHandler(BillingDbContext db) =>
         new(db, _signature.Object, _store.Object, Synchronizer(db));
 
@@ -151,7 +152,7 @@ public class PaymentHandlersTests
         provider.Setup(p => p.CreateQrOrderAsync(It.IsAny<MercadoPagoQrOrderRequest>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new MercadoPagoOrder("ORDX", "created", null, null));
 
-        var act = () => new CreatePaymentHandler(db, provider.Object)
+        var act = () => new CreatePaymentHandler(db, provider.Object, _history)
             .ExecuteAsync(new CreatePaymentCommand(budget.Id, BudgetFixtures.StaffRequester));
 
         await act.Should().ThrowAsync<PaymentProviderException>().WithMessage("*qr_data*");
@@ -293,5 +294,90 @@ public class PaymentHandlersTests
         var outcome = await NotificationHandler(db).ExecuteAsync(Notification(null));
 
         outcome.Should().Be(NotificationOutcome.Ignored);
+    }
+
+    // --- History (MongoDB payment_events) and outbox ordering ---------------------------
+
+    [Fact]
+    public async Task Create_RecordsCreatedHistoryWithProviderSnapshot()
+    {
+        await using var db = InMemoryDbContextHelper.Create();
+
+        var created = await SeedPaymentAsync(db);
+
+        var entry = _history.For(created.Id).Single();
+        entry.Event.Should().Be("created");
+        entry.Status.Should().Be("PENDING");
+        entry.ProviderOrderId.Should().Be(created.ProviderOrderId);
+        entry.ProviderStatus.Should().Be("created");
+        entry.ProviderSnapshotJson.Should().Contain(created.ProviderOrderId!);
+        entry.AmountInCents.Should().Be(created.AmountInCents);
+    }
+
+    [Fact]
+    public async Task Verify_Processed_RecordsConfirmedHistoryOnce()
+    {
+        await using var db = InMemoryDbContextHelper.Create();
+        var created = await SeedPaymentAsync(db);
+        _mercadoPago.SetStatus(created.ProviderOrderId!, "processed");
+        var handler = new VerifyPaymentHandler(db, Synchronizer(db));
+
+        await handler.ExecuteAsync(created.Id);
+        await handler.ExecuteAsync(created.Id);
+
+        _history.For(created.Id).Select(e => e.Event).Should().Equal("created", "confirmed");
+        var confirmed = _history.For(created.Id)[1];
+        confirmed.Status.Should().Be("CONFIRMED");
+        confirmed.ProviderStatus.Should().Be("processed");
+        confirmed.ProviderSnapshotJson.Should().Contain("processed");
+    }
+
+    [Fact]
+    public async Task Verify_Expired_RecordsFailedHistoryWithReason()
+    {
+        await using var db = InMemoryDbContextHelper.Create();
+        var created = await SeedPaymentAsync(db);
+        _mercadoPago.SetStatus(created.ProviderOrderId!, "expired");
+
+        await new VerifyPaymentHandler(db, Synchronizer(db)).ExecuteAsync(created.Id);
+
+        var failed = _history.For(created.Id)[^1];
+        failed.Event.Should().Be("failed");
+        failed.Reason.Should().Contain("expired");
+    }
+
+    [Fact]
+    public async Task Verify_StillPending_RecordsNoNewHistory()
+    {
+        await using var db = InMemoryDbContextHelper.Create();
+        var created = await SeedPaymentAsync(db);
+
+        await new VerifyPaymentHandler(db, Synchronizer(db)).ExecuteAsync(created.Id);
+
+        _history.For(created.Id).Select(e => e.Event).Should().Equal("created");
+    }
+
+    [Fact]
+    public async Task Sync_PublishesBeforeCommit_SoTheOutboxSharesTheStatusTransaction()
+    {
+        var databaseName = Guid.NewGuid().ToString();
+        await using var db = InMemoryDbContextHelper.Create(databaseName);
+        var created = await SeedPaymentAsync(db);
+        _mercadoPago.SetStatus(created.ProviderOrderId!, "processed");
+        string? committedStatusWhenPublished = null;
+        _publisher
+            .Setup(p => p.PublishPaymentConfirmedAsync(It.IsAny<Payment>(), It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                using var other = InMemoryDbContextHelper.Create(databaseName);
+                committedStatusWhenPublished = other.Payments.Single(p => p.Id == created.Id).Status.ToString();
+            })
+            .Returns(Task.CompletedTask);
+
+        await new VerifyPaymentHandler(db, Synchronizer(db)).ExecuteAsync(created.Id);
+
+        committedStatusWhenPublished.Should().Be("PENDING");
+        await using var after = InMemoryDbContextHelper.Create(databaseName);
+        after.Payments.Single(p => p.Id == created.Id).Status.ToString().Should().Be("CONFIRMED");
     }
 }

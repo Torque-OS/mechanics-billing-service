@@ -12,7 +12,7 @@ public sealed record CreatePaymentCommand(Guid BudgetId, BudgetRequester Request
 /// Charges an approved budget with a dynamic Mercado Pago QR. One payment per budget: a repeated request
 /// returns the existing payment. Nothing is stored when Mercado Pago rejects the order.
 /// </summary>
-public sealed class CreatePaymentHandler(IBillingDbContext db, IMercadoPagoClient mercadoPago)
+public sealed class CreatePaymentHandler(IBillingDbContext db, IMercadoPagoClient mercadoPago, IPaymentHistory history)
 {
     public async Task<CreatePaymentResult> ExecuteAsync(
         CreatePaymentCommand command, CancellationToken cancellationToken = default)
@@ -43,6 +43,8 @@ public sealed class CreatePaymentHandler(IBillingDbContext db, IMercadoPagoClien
 
         db.Payments.Add(payment);
         await db.SaveChangesAsync(cancellationToken);
+
+        await history.RecordAsync(PaymentSynchronizer.Entry(payment, "created", order), cancellationToken);
 
         return new CreatePaymentResult(PaymentResponse.From(payment), Created: true);
     }

@@ -22,14 +22,15 @@ public sealed class GenerateBudgetHandler(IBillingDbContext db, IBudgetEventPubl
         }
         catch (DomainException exception)
         {
+            // Events go through the transactional outbox: published before SaveChanges, sent only once it commits.
             await publisher.PublishBudgetFailedAsync(command.ServiceOrderId, exception.Message, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
             return GenerateBudgetResult.Rejected(exception.Message);
         }
 
         db.Budgets.Add(budget);
-        await db.SaveChangesAsync(cancellationToken);
-
         await publisher.PublishBudgetGeneratedAsync(budget, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
 
         return GenerateBudgetResult.Generated(BudgetResponse.From(budget));
     }
