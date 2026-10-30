@@ -9,7 +9,7 @@ using MechanicsSoftware.BillingService.Application.Exceptions;
 namespace MechanicsSoftware.BillingService.Infrastructure.MercadoPago;
 
 /// <summary>
-/// Orders API client for dynamic QR (<c>POST /v1/orders</c>, <c>GET /v1/orders/{id}</c>).
+/// Orders API client for dynamic QR (<c>POST /v1/orders</c>, <c>GET /v1/orders/{id}</c>, refund and cancel).
 /// Every failure — missing configuration, HTTP error, unreadable body — becomes a <see cref="PaymentProviderException"/>.
 /// </summary>
 public sealed class MercadoPagoClient(HttpClient http, MercadoPagoOptions options) : IMercadoPagoClient
@@ -47,6 +47,23 @@ public sealed class MercadoPagoClient(HttpClient http, MercadoPagoOptions option
     {
         using var message = NewRequest(HttpMethod.Get, $"v1/orders/{Uri.EscapeDataString(orderId)}");
         return await SendAsync(message, $"get order {orderId}", cancellationToken);
+    }
+
+    public Task<MercadoPagoOrder> RefundOrderAsync(
+        string orderId, string idempotencyKey, CancellationToken cancellationToken = default) =>
+        PostOrderActionAsync(orderId, "refund", idempotencyKey, cancellationToken);
+
+    public Task<MercadoPagoOrder> CancelOrderAsync(
+        string orderId, string idempotencyKey, CancellationToken cancellationToken = default) =>
+        PostOrderActionAsync(orderId, "cancel", idempotencyKey, cancellationToken);
+
+    // POST /v1/orders/{id}/refund (no body = full refund) and /v1/orders/{id}/cancel; both answer with the order.
+    private async Task<MercadoPagoOrder> PostOrderActionAsync(
+        string orderId, string action, string idempotencyKey, CancellationToken cancellationToken)
+    {
+        using var message = NewRequest(HttpMethod.Post, $"v1/orders/{Uri.EscapeDataString(orderId)}/{action}");
+        message.Headers.Add("X-Idempotency-Key", idempotencyKey);
+        return await SendAsync(message, $"{action} order {orderId}", cancellationToken);
     }
 
     private HttpRequestMessage NewRequest(HttpMethod method, string path)

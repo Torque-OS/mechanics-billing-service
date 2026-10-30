@@ -145,4 +145,52 @@ public class PaymentTests
 
         act.Should().Throw<InvalidPaymentStatusTransitionException>();
     }
+
+    [Fact]
+    public void Cancel_Pending_SetsCancelledAndDate()
+    {
+        var payment = Payment.CreateFor(BudgetFixtures.CreateApprovedBudget());
+
+        payment.Cancel();
+
+        payment.Status.ToString().Should().Be("CANCELLED");
+        payment.Status.IsFinal.Should().BeTrue();
+        payment.CancelledAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Refund_Confirmed_SetsRefundedAndDate()
+    {
+        var payment = Payment.CreateFor(BudgetFixtures.CreateApprovedBudget());
+        payment.Confirm();
+        payment.Status.IsFinal.Should().BeFalse("a confirmed payment can still be refunded");
+
+        payment.Refund();
+
+        payment.Status.ToString().Should().Be("REFUNDED");
+        payment.Status.IsFinal.Should().BeTrue();
+        payment.RefundedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Refund_Pending_IsInvalid_NothingToGiveBack()
+    {
+        var payment = Payment.CreateFor(BudgetFixtures.CreateApprovedBudget());
+
+        payment.Invoking(p => p.Refund()).Should().Throw<InvalidPaymentStatusTransitionException>();
+    }
+
+    [Theory]
+    [InlineData(PaymentStatus.Status.Confirmed, PaymentStatus.Status.Cancelled)]
+    [InlineData(PaymentStatus.Status.Failed, PaymentStatus.Status.Cancelled)]
+    [InlineData(PaymentStatus.Status.Failed, PaymentStatus.Status.Refunded)]
+    [InlineData(PaymentStatus.Status.Cancelled, PaymentStatus.Status.Confirmed)]
+    [InlineData(PaymentStatus.Status.Refunded, PaymentStatus.Status.Refunded)]
+    [InlineData(PaymentStatus.Status.Refunded, PaymentStatus.Status.Confirmed)]
+    public void PaymentStatus_InvalidCompensationTransitions_Throw(PaymentStatus.Status current, PaymentStatus.Status target)
+    {
+        var act = () => new PaymentStatus(current).TransitionTo(target);
+
+        act.Should().Throw<InvalidPaymentStatusTransitionException>();
+    }
 }

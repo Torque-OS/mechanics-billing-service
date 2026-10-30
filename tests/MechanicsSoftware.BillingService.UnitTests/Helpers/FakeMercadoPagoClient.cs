@@ -6,7 +6,8 @@ namespace MechanicsSoftware.BillingService.UnitTests.Helpers;
 
 /// <summary>
 /// In-memory Mercado Pago: creates orders with status <c>created</c> and lets a test move them to any
-/// status, as the real provider would after the buyer pays or the QR expires.
+/// status, as the real provider would after the buyer pays or the QR expires. Refund and cancel follow the
+/// provider's rules (refund only <c>processed</c>, cancel only <c>created</c>/<c>action_required</c>).
 /// </summary>
 public sealed class FakeMercadoPagoClient : IMercadoPagoClient
 {
@@ -15,6 +16,10 @@ public sealed class FakeMercadoPagoClient : IMercadoPagoClient
     public List<(MercadoPagoQrOrderRequest Request, string IdempotencyKey)> CreateCalls { get; } = [];
     public int GetCalls { get; private set; }
     public bool FailNextCreate { get; set; }
+    public List<(string OrderId, string IdempotencyKey)> RefundCalls { get; } = [];
+    public List<(string OrderId, string IdempotencyKey)> CancelCalls { get; } = [];
+    public bool FailNextRefund { get; set; }
+    public bool FailNextCancel { get; set; }
 
     public Task<MercadoPagoOrder> CreateQrOrderAsync(
         MercadoPagoQrOrderRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
@@ -38,6 +43,44 @@ public sealed class FakeMercadoPagoClient : IMercadoPagoClient
         return _orders.TryGetValue(orderId.ToUpperInvariant(), out var order)
             ? Task.FromResult(order)
             : throw new PaymentProviderException($"Order '{orderId}' not found (fake).");
+    }
+
+    public Task<MercadoPagoOrder> RefundOrderAsync(
+        string orderId, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        if (FailNextRefund)
+        {
+            FailNextRefund = false;
+            throw new PaymentProviderException("Mercado Pago refused the refund (fake).");
+        }
+
+        lock (RefundCalls) RefundCalls.Add((orderId, idempotencyKey));
+        return Move(orderId, from: ["processed"], to: "refunded");
+    }
+
+    public Task<MercadoPagoOrder> CancelOrderAsync(
+        string orderId, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        if (FailNextCancel)
+        {
+            FailNextCancel = false;
+            throw new PaymentProviderException("Mercado Pago refused the cancellation (fake).");
+        }
+
+        lock (CancelCalls) CancelCalls.Add((orderId, idempotencyKey));
+        return Move(orderId, from: ["created", "action_required"], to: "canceled");
+    }
+
+    public string StatusOf(string orderId) => _orders[orderId].Status;
+
+    private Task<MercadoPagoOrder> Move(string orderId, string[] from, string to)
+    {
+        var order = _orders[orderId];
+        if (!from.Contains(order.Status))
+            throw new PaymentProviderException($"Order '{orderId}' is {order.Status}; cannot move to {to} (fake).");
+
+        SetStatus(orderId, to);
+        return Task.FromResult(_orders[orderId]);
     }
 
     public void SetStatus(string orderId, string status, string? statusDetail = null) =>

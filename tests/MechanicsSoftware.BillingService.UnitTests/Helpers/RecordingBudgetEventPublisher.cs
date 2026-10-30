@@ -25,6 +25,9 @@ public sealed class RecordingBudgetEventPublisher : IBudgetEventPublisher
     public Task PublishBudgetRejectedAsync(Budget budget, CancellationToken cancellationToken = default) =>
         Record("BudgetRejected", budget.ServiceOrderId);
 
+    public Task PublishBudgetCancelledAsync(Budget budget, CancellationToken cancellationToken = default) =>
+        Record("BudgetCancelled", budget.ServiceOrderId);
+
     private Task Record(string name, Guid serviceOrderId)
     {
         _events.Enqueue(new RecordedBudgetEvent(name, serviceOrderId));

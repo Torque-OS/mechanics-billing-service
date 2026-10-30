@@ -12,6 +12,7 @@ public sealed class BudgetConfiguration : IEntityTypeConfiguration<Budget>
         ["PENDING"] = BudgetStatus.Status.Pending,
         ["APPROVED"] = BudgetStatus.Status.Approved,
         ["REJECTED"] = BudgetStatus.Status.Rejected,
+        ["CANCELLED"] = BudgetStatus.Status.Cancelled,
     };
 
     public void Configure(EntityTypeBuilder<Budget> builder)
@@ -55,6 +56,9 @@ public sealed class BudgetConfiguration : IEntityTypeConfiguration<Budget>
 
         builder.Property(b => b.DecidedAt)
             .HasColumnName("decided_at");
+
+        builder.Property(b => b.CancelledAt)
+            .HasColumnName("cancelled_at");
 
         builder.Navigation(b => b.Items)
             .HasField("_items")

@@ -380,4 +380,71 @@ public class PaymentHandlersTests
         await using var after = InMemoryDbContextHelper.Create(databaseName);
         after.Payments.Single(p => p.Id == created.Id).Status.ToString().Should().Be("CONFIRMED");
     }
+
+    // --- Refund reported by Mercado Pago (F4-17) -------------------------------------------
+
+    private async Task<PaymentResponse> SeedConfirmedPaymentAsync(BillingDbContext db)
+    {
+        var created = await SeedPaymentAsync(db);
+        _mercadoPago.SetStatus(created.ProviderOrderId!, "processed");
+        await new VerifyPaymentHandler(db, Synchronizer(db)).ExecuteAsync(created.Id);
+        _publisher.Invocations.Clear();
+        return created;
+    }
+
+    [Fact]
+    public async Task Verify_ConfirmedThenRefundedOnMercadoPago_MarksRefundedWithoutSagaEvent()
+    {
+        await using var db = InMemoryDbContextHelper.Create();
+        var created = await SeedConfirmedPaymentAsync(db);
+        _mercadoPago.SetStatus(created.ProviderOrderId!, "refunded");
+
+        var result = await new VerifyPaymentHandler(db, Synchronizer(db)).ExecuteAsync(created.Id);
+
+        result.Status.Should().Be("REFUNDED");
+        result.RefundedAt.Should().NotBeNull();
+        _publisher.VerifyNoOtherCalls();
+        _history.For(created.Id).Select(e => e.Event).Should().Equal("created", "confirmed", "refunded");
+    }
+
+    [Fact]
+    public async Task Verify_ConfirmedAndStillProcessed_ChangesNothing()
+    {
+        await using var db = InMemoryDbContextHelper.Create();
+        var created = await SeedConfirmedPaymentAsync(db);
+
+        var result = await new VerifyPaymentHandler(db, Synchronizer(db)).ExecuteAsync(created.Id);
+
+        result.Status.Should().Be("CONFIRMED");
+        _publisher.VerifyNoOtherCalls();
+        _history.For(created.Id).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Verify_PendingButAlreadyRefunded_FailsThePayment_ItWasNeverKept()
+    {
+        await using var db = InMemoryDbContextHelper.Create();
+        var created = await SeedPaymentAsync(db);
+        _mercadoPago.SetStatus(created.ProviderOrderId!, "refunded");
+
+        var result = await new VerifyPaymentHandler(db, Synchronizer(db)).ExecuteAsync(created.Id);
+
+        result.Status.Should().Be("FAILED");
+        result.FailureReason.Should().Contain("refunded");
+        _publisher.Verify(p => p.PublishPaymentFailedAsync(It.Is<Payment>(x => x.Id == created.Id), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Verify_RefundedPayment_IsFinal_NoProviderCall()
+    {
+        await using var db = InMemoryDbContextHelper.Create();
+        var created = await SeedConfirmedPaymentAsync(db);
+        _mercadoPago.SetStatus(created.ProviderOrderId!, "refunded");
+        await new VerifyPaymentHandler(db, Synchronizer(db)).ExecuteAsync(created.Id);
+        var calls = _mercadoPago.GetCalls;
+
+        await new VerifyPaymentHandler(db, Synchronizer(db)).ExecuteAsync(created.Id);
+
+        _mercadoPago.GetCalls.Should().Be(calls);
+    }
 }

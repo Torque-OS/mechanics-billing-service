@@ -6,6 +6,7 @@ namespace MechanicsSoftware.BillingService.Domain.Entities;
 /// <summary>
 /// Charge of an approved budget through a payment provider (Mercado Pago QR). The provider is the
 /// source of truth for the outcome; this aggregate records it once: Pending → Confirmed | Failed.
+/// Saga compensation (F4-17) closes it on the provider first: an open QR is Cancelled, a confirmed payment Refunded.
 /// </summary>
 public sealed class Payment : Entity<Guid>
 {
@@ -20,6 +21,8 @@ public sealed class Payment : Entity<Guid>
     public DateTime CreatedAt { get; private set; }
     public DateTime? ConfirmedAt { get; private set; }
     public DateTime? FailedAt { get; private set; }
+    public DateTime? CancelledAt { get; private set; }
+    public DateTime? RefundedAt { get; private set; }
 
     private Payment() { }
 
@@ -73,5 +76,19 @@ public sealed class Payment : Entity<Guid>
         Status = Status.TransitionTo(PaymentStatus.Status.Failed);
         FailureReason = string.IsNullOrWhiteSpace(reason) ? "unknown" : reason.Trim();
         FailedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>The QR was withdrawn before being paid (call only after the provider cancelled the order).</summary>
+    public void Cancel()
+    {
+        Status = Status.TransitionTo(PaymentStatus.Status.Cancelled);
+        CancelledAt = DateTime.UtcNow;
+    }
+
+    /// <summary>The money went back to the buyer (call only after the provider accepted the refund).</summary>
+    public void Refund()
+    {
+        Status = Status.TransitionTo(PaymentStatus.Status.Refunded);
+        RefundedAt = DateTime.UtcNow;
     }
 }

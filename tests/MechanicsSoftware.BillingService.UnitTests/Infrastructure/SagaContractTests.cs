@@ -34,6 +34,8 @@ public sealed class SagaContractTests : IAsyncLifetime
     [InlineData(typeof(BudgetRejected), "urn:message:TorqueOS.Contracts.Billing:BudgetRejected")]
     [InlineData(typeof(PaymentConfirmed), "urn:message:TorqueOS.Contracts.Billing:PaymentConfirmed")]
     [InlineData(typeof(PaymentFailed), "urn:message:TorqueOS.Contracts.Billing:PaymentFailed")]
+    [InlineData(typeof(BudgetCancelled), "urn:message:TorqueOS.Contracts.Billing:BudgetCancelled")]
+    [InlineData(typeof(CancelBudget), "urn:message:TorqueOS.Contracts.Billing:CancelBudget")]
     public void MessageIdentity_IsStable(Type contract, string expectedUrn)
     {
         MessageUrn.ForType(contract).ToString().Should().Be(expectedUrn);
@@ -101,5 +103,18 @@ public sealed class SagaContractTests : IAsyncLifetime
         await new MassTransitBudgetEventPublisher(_harness.Bus).PublishBudgetRejectedAsync(budget);
 
         _harness.Published.Select<BudgetRejected>().Single().Context.Message.BudgetId.Should().Be(budget.Id);
+    }
+
+    [Fact]
+    public async Task BudgetCancelled_CarriesContractFieldsAndServiceOrderCorrelation()
+    {
+        var budget = BudgetFixtures.CreateBudget();
+        budget.Cancel(payment: null);
+
+        await new MassTransitBudgetEventPublisher(_harness.Bus).PublishBudgetCancelledAsync(budget);
+
+        var published = _harness.Published.Select<BudgetCancelled>().Single().Context;
+        published.Message.Should().Be(new BudgetCancelled(budget.ServiceOrderId, budget.Id, budget.CancelledAt!.Value));
+        published.CorrelationId.Should().Be(budget.ServiceOrderId);
     }
 }

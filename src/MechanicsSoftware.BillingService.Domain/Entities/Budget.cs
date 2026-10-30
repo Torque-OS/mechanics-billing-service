@@ -14,6 +14,7 @@ public sealed class Budget : Entity<Guid>
     public BudgetStatus Status { get; private set; } = null!;
     public DateTime CreatedAt { get; private set; }
     public DateTime? DecidedAt { get; private set; }
+    public DateTime? CancelledAt { get; private set; }
 
     public IReadOnlyCollection<BudgetItem> Items => _items.AsReadOnly();
 
@@ -53,6 +54,25 @@ public sealed class Budget : Entity<Guid>
     public void Approve() => Decide(BudgetStatus.Status.Approved);
 
     public void Reject() => Decide(BudgetStatus.Status.Rejected);
+
+    public bool IsCancelled => Status.Value == BudgetStatus.Status.Cancelled;
+
+    /// <summary>
+    /// Saga compensation (ADR-011): the service order was cancelled. Money must never be left behind — while the
+    /// payment is open (<c>PENDING</c>) or received (<c>CONFIRMED</c>) it has to be cancelled or refunded first.
+    /// </summary>
+    public void Cancel(Payment? payment)
+    {
+        if (payment is not null && payment.BudgetId != Id)
+            throw new DomainException("Payment does not belong to this budget.");
+
+        if (payment?.Status.Value is PaymentStatus.Status.Pending or PaymentStatus.Status.Confirmed)
+            throw new ConflictException(
+                $"Budget cannot be cancelled while its payment is '{payment.Status}'; cancel or refund the payment first.");
+
+        Status = Status.TransitionTo(BudgetStatus.Status.Cancelled);
+        CancelledAt = DateTime.UtcNow;
+    }
 
     private void Decide(BudgetStatus.Status decision)
     {

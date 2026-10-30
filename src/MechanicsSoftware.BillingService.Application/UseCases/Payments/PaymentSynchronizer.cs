@@ -2,21 +2,25 @@ using MechanicsSoftware.BillingService.Application.Abstractions;
 using MechanicsSoftware.BillingService.Application.Exceptions;
 using MechanicsSoftware.BillingService.Domain.Entities;
 using MechanicsSoftware.BillingService.Domain.Exceptions;
+using MechanicsSoftware.BillingService.Domain.ValueObjects;
 
 namespace MechanicsSoftware.BillingService.Application.UseCases.Payments;
 
 /// <summary>
 /// Reads the order from Mercado Pago and records the outcome — the provider, not the webhook body, is the
 /// source of truth. Applies at most once: a payment that already reached a final status is left untouched,
-/// so repeated or out-of-order notifications never publish a second Saga event.
+/// so repeated or out-of-order notifications never publish a second Saga event. A confirmed payment only moves on
+/// when Mercado Pago reports it refunded (e.g. from the panel); that publishes nothing — a refund requested by the
+/// Saga is answered by <c>BudgetCancelled</c> (F4-17).
 /// The event goes through the transactional outbox (published before SaveChanges, sent once it commits);
 /// the history entry is written after the commit.
 /// </summary>
 public sealed class PaymentSynchronizer(
     IBillingDbContext db, IMercadoPagoClient mercadoPago, IPaymentEventPublisher publisher, IPaymentHistory history)
 {
+    // "refunded" while still pending here: paid and given back before we saw it — the order was never paid for.
     private static readonly HashSet<string> FailedStatuses =
-        new(StringComparer.OrdinalIgnoreCase) { "canceled", "expired", "failed" };
+        new(StringComparer.OrdinalIgnoreCase) { "canceled", "expired", "failed", "refunded" };
 
     public async Task SyncAsync(Payment payment, CancellationToken cancellationToken = default)
     {
@@ -29,7 +33,15 @@ public sealed class PaymentSynchronizer(
         var order = await mercadoPago.GetOrderAsync(payment.ProviderOrderId, cancellationToken);
 
         string historyEvent;
-        if (string.Equals(order.Status, "processed", StringComparison.OrdinalIgnoreCase))
+        if (payment.Status.Value == PaymentStatus.Status.Confirmed)
+        {
+            if (!string.Equals(order.Status, "refunded", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            payment.Refund();
+            historyEvent = "refunded";
+        }
+        else if (string.Equals(order.Status, "processed", StringComparison.OrdinalIgnoreCase))
         {
             payment.Confirm();
             await publisher.PublishPaymentConfirmedAsync(payment, cancellationToken);
@@ -53,7 +65,8 @@ public sealed class PaymentSynchronizer(
         await history.RecordAsync(Entry(payment, historyEvent, order), cancellationToken);
     }
 
-    internal static PaymentHistoryEntry Entry(Payment payment, string historyEvent, MercadoPagoOrder? order = null) =>
+    internal static PaymentHistoryEntry Entry(
+        Payment payment, string historyEvent, MercadoPagoOrder? order = null, string? failure = null) =>
         new(
             payment.Id,
             payment.ServiceOrderId,
@@ -64,8 +77,10 @@ public sealed class PaymentSynchronizer(
             payment.ProviderOrderId,
             order?.Status,
             order?.RawJson,
-            payment.FailureReason,
-            payment.FailedAt ?? payment.ConfirmedAt ?? payment.CreatedAt);
+            failure ?? payment.FailureReason,
+            failure is not null
+                ? DateTime.UtcNow
+                : payment.RefundedAt ?? payment.CancelledAt ?? payment.FailedAt ?? payment.ConfirmedAt ?? payment.CreatedAt);
 
     internal static PaymentProviderException MissingQrData(string orderId) =>
         new($"Mercado Pago order '{orderId}' was created without qr_data.");

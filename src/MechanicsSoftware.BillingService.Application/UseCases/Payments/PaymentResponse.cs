@@ -14,7 +14,9 @@ public sealed record PaymentResponse(
     string? FailureReason,
     DateTime CreatedAt,
     DateTime? ConfirmedAt,
-    DateTime? FailedAt)
+    DateTime? FailedAt,
+    DateTime? CancelledAt,
+    DateTime? RefundedAt)
 {
     public static PaymentResponse From(Payment payment) =>
         new(
@@ -29,5 +31,7 @@ public sealed record PaymentResponse(
             payment.FailureReason,
             payment.CreatedAt,
             payment.ConfirmedAt,
-            payment.FailedAt);
+            payment.FailedAt,
+            payment.CancelledAt,
+            payment.RefundedAt);
 }

@@ -14,6 +14,7 @@ public static class DependencyInjection
         // Budgets
         services.AddScoped<GenerateBudgetHandler>();
         services.AddScoped<DecideBudgetHandler>();
+        services.AddScoped<CancelBudgetHandler>();
         services.AddScoped<GetBudgetHandler>();
         services.AddScoped<GetBudgetByServiceOrderHandler>();
 

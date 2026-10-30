@@ -10,6 +10,14 @@ public interface IMercadoPagoClient
         MercadoPagoQrOrderRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
 
     Task<MercadoPagoOrder> GetOrderAsync(string orderId, CancellationToken cancellationToken = default);
+
+    /// <summary>Full refund of a <c>processed</c> order.</summary>
+    /// <param name="idempotencyKey">Fixed per payment, so repeating a failed cancellation never refunds twice.</param>
+    Task<MercadoPagoOrder> RefundOrderAsync(string orderId, string idempotencyKey, CancellationToken cancellationToken = default);
+
+    /// <summary>Withdraws an unpaid order (<c>created</c> or <c>action_required</c>).</summary>
+    /// <param name="idempotencyKey">Fixed per payment.</param>
+    Task<MercadoPagoOrder> CancelOrderAsync(string orderId, string idempotencyKey, CancellationToken cancellationToken = default);
 }
 
 /// <param name="ExternalReference">Our payment id — lets an order be traced back without a lookup table.</param>
