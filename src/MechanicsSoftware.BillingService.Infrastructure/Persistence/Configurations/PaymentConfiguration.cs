@@ -12,6 +12,8 @@ public sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         ["PENDING"] = PaymentStatus.Status.Pending,
         ["CONFIRMED"] = PaymentStatus.Status.Confirmed,
         ["FAILED"] = PaymentStatus.Status.Failed,
+        ["CANCELLED"] = PaymentStatus.Status.Cancelled,
+        ["REFUNDED"] = PaymentStatus.Status.Refunded,
     };
 
     public void Configure(EntityTypeBuilder<Payment> builder)
@@ -81,6 +83,12 @@ public sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
 
         builder.Property(p => p.FailedAt)
             .HasColumnName("failed_at");
+
+        builder.Property(p => p.CancelledAt)
+            .HasColumnName("cancelled_at");
+
+        builder.Property(p => p.RefundedAt)
+            .HasColumnName("refunded_at");
     }
 
     internal static PaymentStatus ParseStatus(string value) =>

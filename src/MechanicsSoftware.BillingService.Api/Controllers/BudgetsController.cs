@@ -16,6 +16,7 @@ namespace MechanicsSoftware.BillingService.Api.Controllers;
 public class BudgetsController(
     GenerateBudgetHandler generateHandler,
     DecideBudgetHandler decideHandler,
+    CancelBudgetHandler cancelHandler,
     GetBudgetHandler getHandler,
     GetBudgetByServiceOrderHandler getByServiceOrderHandler) : ControllerBase
 {
@@ -76,4 +77,18 @@ public class BudgetsController(
         return Ok(await decideHandler.ExecuteAsync(
             new DecideBudgetCommand(id, request.Decision, requester), cancellationToken));
     }
+
+    /// <summary>
+    /// Cancels a budget as the Saga's <c>CancelBudget</c> compensation does (same handler): an open QR is cancelled on
+    /// Mercado Pago, a received payment is refunded. Staff only — the customer asks the OS Service, which refuses
+    /// completed orders. Repeating it after a 502 retries without refunding twice.
+    /// </summary>
+    [HttpPost("{id:guid}/cancel")]
+    [Authorize(Policy = Policies.Staff)]
+    [ProducesResponseType<BudgetResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> Cancel(Guid id, CancellationToken cancellationToken) =>
+        Ok(await cancelHandler.ExecuteAsync(id, cancellationToken));
 }

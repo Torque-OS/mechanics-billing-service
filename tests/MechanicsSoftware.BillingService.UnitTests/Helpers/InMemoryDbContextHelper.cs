@@ -23,6 +23,8 @@ public sealed class SaveChangesCounter : SaveChangesInterceptor
 {
     public int Count { get; private set; }
 
+    public void Reset() => Count = 0;
+
     public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
         DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
     {

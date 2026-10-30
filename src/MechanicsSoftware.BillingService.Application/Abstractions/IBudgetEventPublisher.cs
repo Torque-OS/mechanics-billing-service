@@ -8,4 +8,5 @@ public interface IBudgetEventPublisher
     Task PublishBudgetFailedAsync(Guid serviceOrderId, string reason, CancellationToken cancellationToken = default);
     Task PublishBudgetApprovedAsync(Budget budget, CancellationToken cancellationToken = default);
     Task PublishBudgetRejectedAsync(Budget budget, CancellationToken cancellationToken = default);
+    Task PublishBudgetCancelledAsync(Budget budget, CancellationToken cancellationToken = default);
 }

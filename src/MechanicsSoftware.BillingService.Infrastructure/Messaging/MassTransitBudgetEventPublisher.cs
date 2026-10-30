@@ -27,6 +27,10 @@ public sealed class MassTransitBudgetEventPublisher(IPublishEndpoint bus) : IBud
         Publish(new BudgetRejected(budget.ServiceOrderId, budget.Id, budget.DecidedAt ?? DateTime.UtcNow),
             budget.ServiceOrderId, cancellationToken);
 
+    public Task PublishBudgetCancelledAsync(Budget budget, CancellationToken cancellationToken = default) =>
+        Publish(new BudgetCancelled(budget.ServiceOrderId, budget.Id, budget.CancelledAt ?? DateTime.UtcNow),
+            budget.ServiceOrderId, cancellationToken);
+
     private Task Publish<T>(T message, Guid serviceOrderId, CancellationToken cancellationToken) where T : class =>
         bus.Publish(message, context => context.CorrelationId = serviceOrderId, cancellationToken);
 }

@@ -62,4 +62,28 @@ public class BudgetStatusTests
     {
         new BudgetStatus((BudgetStatus.Status)99).ToString().Should().Be("99");
     }
+
+    [Theory]
+    [InlineData(BudgetStatus.Status.Pending)]
+    [InlineData(BudgetStatus.Status.Approved)]
+    public void TransitionTo_Cancelled_FromPendingOrApproved_IsAllowed(BudgetStatus.Status current)
+    {
+        var status = new BudgetStatus(current).TransitionTo(BudgetStatus.Status.Cancelled);
+
+        status.Value.Should().Be(BudgetStatus.Status.Cancelled);
+        status.ToString().Should().Be("CANCELLED");
+    }
+
+    [Theory]
+    [InlineData(BudgetStatus.Status.Rejected, BudgetStatus.Status.Cancelled)]
+    [InlineData(BudgetStatus.Status.Cancelled, BudgetStatus.Status.Cancelled)]
+    [InlineData(BudgetStatus.Status.Cancelled, BudgetStatus.Status.Approved)]
+    [InlineData(BudgetStatus.Status.Cancelled, BudgetStatus.Status.Pending)]
+    public void TransitionTo_FromFinalStatus_ThrowsInvalidStatusTransitionException(
+        BudgetStatus.Status current, BudgetStatus.Status target)
+    {
+        var act = () => new BudgetStatus(current).TransitionTo(target);
+
+        act.Should().Throw<InvalidStatusTransitionException>();
+    }
 }

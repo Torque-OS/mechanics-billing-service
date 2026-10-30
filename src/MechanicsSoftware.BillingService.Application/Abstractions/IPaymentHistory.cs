@@ -9,7 +9,10 @@ public interface IPaymentHistory
     Task RecordAsync(PaymentHistoryEntry entry, CancellationToken cancellationToken = default);
 }
 
-/// <param name="Event"><c>created</c>, <c>confirmed</c> or <c>failed</c>.</param>
+/// <param name="Event">
+/// <c>created</c>, <c>confirmed</c>, <c>failed</c>, <c>cancelled</c>, <c>refunded</c>; or <c>cancel_failed</c> /
+/// <c>refund_failed</c> when Mercado Pago refused a cancellation (status unchanged, <c>Reason</c> = the error).
+/// </param>
 /// <param name="ProviderSnapshotJson">Mercado Pago order as read when the decision was taken (null on creation).</param>
 public sealed record PaymentHistoryEntry(
     Guid PaymentId,

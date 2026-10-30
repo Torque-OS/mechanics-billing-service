@@ -46,6 +46,8 @@ public static class DependencyInjection
         // event is committed with the state change and delivered after SaveChanges. Contracts: TorqueOS.Contracts.Billing.
         services.AddMassTransit(bus =>
         {
+            bus.AddConsumer<CancelBudgetConsumer, CancelBudgetConsumerDefinition>();
+
             bus.AddEntityFrameworkOutbox<BillingDbContext>(outbox =>
             {
                 outbox.UsePostgres();

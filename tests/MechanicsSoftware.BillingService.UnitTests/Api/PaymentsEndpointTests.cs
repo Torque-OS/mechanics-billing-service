@@ -293,4 +293,82 @@ public class PaymentsEndpointTests(BillingApiFactory factory) : IClassFixture<Bi
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
+
+    // --- Cancel budget (Saga compensation, F4-17) -----------------------------------------
+
+    private Task<HttpResponseMessage> CancelAsync(string token, Guid budgetId) =>
+        ClientAs(token).PostAsync($"/api/budgets/{budgetId}/cancel", null);
+
+    [Fact]
+    public async Task CancelBudget_PaidOrder_RefundsAndReturns200Cancelled()
+    {
+        var payment = await PaymentAsync();
+        factory.MercadoPago.SetStatus(payment.ProviderOrderId!, "processed");
+        await ClientAs(TestTokens.Staff()).PostAsync($"/api/payments/{payment.Id}/verify", null);
+
+        var response = await CancelAsync(TestTokens.Staff(), payment.BudgetId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<BudgetResponse>())!.Status.Should().Be("CANCELLED");
+        (await StatusOf(payment.Id)).Should().Be("REFUNDED");
+        factory.Events.For(payment.ServiceOrderId).Select(e => e.Name).Should().EndWith("BudgetCancelled");
+    }
+
+    [Fact]
+    public async Task CancelBudget_OpenQr_CancelsPaymentWithoutRefund()
+    {
+        var payment = await PaymentAsync();
+
+        var response = await CancelAsync(TestTokens.Staff(), payment.BudgetId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await StatusOf(payment.Id)).Should().Be("CANCELLED");
+        factory.MercadoPago.RefundCalls.Should().NotContain(call => call.OrderId == payment.ProviderOrderId);
+    }
+
+    [Fact]
+    public async Task CancelBudget_AsCustomer_Returns403()
+    {
+        var customerId = Guid.NewGuid();
+        var budget = await BudgetAsync(customerId);
+
+        var response = await CancelAsync(TestTokens.Customer(customerId), budget.Id);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task CancelBudget_RefundFails_Returns502AndKeepsPaymentConfirmed()
+    {
+        var payment = await PaymentAsync();
+        factory.MercadoPago.SetStatus(payment.ProviderOrderId!, "processed");
+        await ClientAs(TestTokens.Staff()).PostAsync($"/api/payments/{payment.Id}/verify", null);
+        factory.MercadoPago.FailNextRefund = true;
+
+        var response = await CancelAsync(TestTokens.Staff(), payment.BudgetId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadGateway);
+        (await StatusOf(payment.Id)).Should().Be("CONFIRMED");
+    }
+
+    [Fact]
+    public async Task CancelBudget_RejectedBudget_Returns409()
+    {
+        var customerId = Guid.NewGuid();
+        var budget = await BudgetAsync(customerId, approve: false);
+        await ClientAs(TestTokens.Customer(customerId))
+            .PostAsJsonAsync($"/api/budgets/{budget.Id}/decision", new { decision = "reject" });
+
+        var response = await CancelAsync(TestTokens.Staff(), budget.Id);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task CancelBudget_UnknownBudget_Returns404()
+    {
+        var response = await CancelAsync(TestTokens.Staff(), Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }

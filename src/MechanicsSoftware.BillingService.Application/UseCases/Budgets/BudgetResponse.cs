@@ -11,7 +11,8 @@ public sealed record BudgetResponse(
     string TotalFormatted,
     DateTime CreatedAt,
     DateTime? DecidedAt,
-    IReadOnlyList<BudgetItemResponse> Items)
+    IReadOnlyList<BudgetItemResponse> Items,
+    DateTime? CancelledAt)
 {
     public static BudgetResponse From(Budget budget) =>
         new(
@@ -23,5 +24,6 @@ public sealed record BudgetResponse(
             budget.Total.ToFormatted(),
             budget.CreatedAt,
             budget.DecidedAt,
-            budget.Items.Select(BudgetItemResponse.From).ToList());
+            budget.Items.Select(BudgetItemResponse.From).ToList(),
+            budget.CancelledAt);
 }

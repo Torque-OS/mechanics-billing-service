@@ -157,4 +157,35 @@ public class MercadoPagoClientTests
         options.BaseAddress.Should().Be(MercadoPagoOptions.DefaultBaseAddress);
         options.ExpirationTime.Should().Be("PT15M");
     }
+
+    [Theory]
+    [InlineData("refund")]
+    [InlineData("cancel")]
+    public async Task RefundAndCancel_PostWithoutBodyAndWithIdempotencyKey(string action)
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, """{"id":"ORD01ABC","status":"refunded","status_detail":"refunded"}""");
+        var client = new MercadoPagoClient(new HttpClient(handler), Options());
+
+        var order = action == "refund"
+            ? await client.RefundOrderAsync("ORD01ABC", "refund-key")
+            : await client.CancelOrderAsync("ORD01ABC", "refund-key");
+
+        order.Status.Should().Be("refunded");
+        handler.Request!.Method.Should().Be(HttpMethod.Post);
+        handler.Request.RequestUri.Should().Be(new Uri($"https://api.mercadopago.com/v1/orders/ORD01ABC/{action}"));
+        handler.Request.Headers.GetValues("X-Idempotency-Key").Should().Equal("refund-key");
+        handler.Request.Headers.Authorization!.ToString().Should().Be("Bearer TEST-token");
+        handler.RequestBody.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Refund_Rejected_ThrowsProviderExceptionNamingTheOperation()
+    {
+        var client = new MercadoPagoClient(
+            new HttpClient(new StubHandler(HttpStatusCode.Conflict, """{"error":"order_not_refundable"}""")), Options());
+
+        var act = () => client.RefundOrderAsync("ORD01ABC", "k");
+
+        await act.Should().ThrowAsync<PaymentProviderException>().WithMessage("*refund order ORD01ABC*409*order_not_refundable*");
+    }
 }

@@ -9,7 +9,8 @@ Per [ADR-010](https://github.com/Torque-OS/mechanics-software/blob/main/docs/dec
 - Generate and send budgets for a service order (using an item snapshot received from the OS Service).
 - Record the customer's approval/rejection.
 - Create and confirm payments via **Mercado Pago**, including webhooks.
-- Publish `BudgetGenerated`, `BudgetApproved`, `BudgetRejected`, `PaymentConfirmed`, `PaymentFailed` events and react to `RequestBudget`, `RequestPayment`, `RefundPayment`, `CancelBudget` commands from the OS Service's Saga orchestrator ([ADR-011](https://github.com/Torque-OS/mechanics-software/blob/main/docs/decisions/ADR-011-saga-orquestrada-e-mensageria.md)).
+- Publish `BudgetGenerated`, `BudgetApproved`, `BudgetRejected`, `BudgetCancelled`, `PaymentConfirmed`, `PaymentFailed` events and react to `RequestBudget`, `RequestPayment`, `CancelBudget` commands from the OS Service's Saga orchestrator ([ADR-011](https://github.com/Torque-OS/mechanics-software/blob/main/docs/decisions/ADR-011-saga-orquestrada-e-mensageria.md)).
+  `CancelBudget` also refunds a received payment — there is no separate `RefundPayment` (see [Cancellation and refund](#cancellation-and-refund-saga-compensation)).
 
 This repo owns its own data — **no other service may query this database directly**
 ([ADR-012](https://github.com/Torque-OS/mechanics-software/blob/main/docs/decisions/ADR-012-banco-por-servico.md)): PostgreSQL for budgets/payments, MongoDB for raw Mercado Pago event/webhook payloads.
@@ -22,7 +23,10 @@ This repo owns its own data — **no other service may query this database direc
 - **Saga events published (F4-16): done.** MassTransit v8 + RabbitMQ with a transactional outbox — see
   [Saga messages](#saga-messages). Payment history in MongoDB (`payment_events`). Consuming them in the OS Service
   is F4-13; until then budgets are generated over HTTP and the OS is not updated automatically.
-- **Refund / cancellation compensations (F4-17), API Gateway route and deploy (F4-33): not started.**
+- **Cancellation and refund compensation (F4-17): done.** `CancelBudget` consumer (inbox + outbox) and staff
+  endpoint: an open QR is cancelled, a received payment is refunded on Mercado Pago — see
+  [Cancellation and refund](#cancellation-and-refund-saga-compensation).
+- **API Gateway route and deploy (F4-33): not started.**
   Until the gateway route exists, Mercado Pago webhooks only reach a local stack through a tunnel (see below).
 
 See the [Fase 4 board](https://github.com/orgs/Torque-OS/projects/4).
@@ -56,6 +60,7 @@ Errors use `{ "error": "..." }`.
 | `GET` | `/api/budgets/{id}` | Staff | `200` · `404` |
 | `GET` | `/api/budgets?serviceOrderId={id}` | Staff | `200` · `404` · `400` without the parameter |
 | `POST` | `/api/budgets/{id}/decision` | Customer (own budget) or staff | `200` · `403` another customer's budget · `404` · `409` already decided |
+| `POST` | `/api/budgets/{id}/cancel` | Staff | `200` cancelled (QR cancelled / payment refunded) · `404` · `409` budget rejected · `502` Mercado Pago failure — repeat to retry |
 | `POST` | `/api/payments` | Customer (own budget) or staff | `201` new payment with `qrData` · `200` existing one for the budget · `409` budget not approved · `502` Mercado Pago failure |
 | `GET` | `/api/payments/{id}` | Staff | `200` · `404` |
 | `POST` | `/api/payments/{id}/verify` | Staff | `200` after re-reading the order from Mercado Pago · `502` |
@@ -102,7 +107,9 @@ Mercado Pago → POST /api/payments/webhooks/mercadopago (topic "Order")
 - `qr.png` is public on purpose (like the OS status link): the id is an unguessable GUID and the image only
   lets someone pay this charge.
 - One payment per budget, for the approved total. An expired QR fails the payment (and, through the Saga,
-  the order) — see F4-17 for compensations.
+  the order).
+- A refund reported by Mercado Pago (`refunded`, e.g. made in the panel) moves a `CONFIRMED` payment to `REFUNDED`
+  without a Saga event; if the payment was still `PENDING`, it fails (`PaymentFailed`) — the money was not kept.
 
 ### Sandbox setup (once)
 
@@ -121,6 +128,32 @@ Mercado Pago → POST /api/payments/webhooks/mercadopago (topic "Order")
 > notification is signed by Mercado Pago and the service confirms the payment from `GET /v1/orders/{id}`.
 > Note: Mercado Pago signs `data.id` exactly as received (upper-case `ORD…`), not lower-cased as the docs state.
 
+## Cancellation and refund (Saga compensation)
+
+When a service order is cancelled, the OS Service sends `CancelBudget`. The Billing Service cancels the budget and
+settles the payment so that **no money is left behind**. There is no refund without a cancellation.
+
+| Payment when the order is cancelled | On Mercado Pago | Payment | Budget |
+|---|---|---|---|
+| none (budget pending or approved, not charged) | — | — | `CANCELLED` |
+| `PENDING` (QR open) | `POST /v1/orders/{id}/cancel` | `CANCELLED` | `CANCELLED` |
+| `CONFIRMED` (paid) | `POST /v1/orders/{id}/refund` (full) | `REFUNDED` | `CANCELLED` |
+| `FAILED` / already closed | — | unchanged | `CANCELLED` |
+
+- **Completed orders are never cancelled — that rule lives in the OS Service**, which only sends `CancelBudget` while
+  the order may still be cancelled. The Billing Service does not query the order status (ADR-012).
+- The order is read from Mercado Pago first, because it may have moved since the last sync: paid a moment ago
+  (→ refunded), QR already expired (→ cancelled locally), refunded in the panel or by an earlier attempt (→ recorded,
+  not refunded again).
+- **Mercado Pago first, database after.** If Mercado Pago refuses or is down, nothing changes and no event is sent;
+  `payment_events` records `refund_failed` / `cancel_failed`. **Repeating the cancellation is the retry**: the
+  `X-Idempotency-Key` is fixed per payment (`refund-<paymentId>`, `cancel-<paymentId>`), so a refund is never made twice.
+- **The refund is asynchronous on Mercado Pago:** the refund call answers with the order still `processed` and the
+  refund `processing`; minutes later the order becomes `refunded`. `REFUNDED` here means *accepted by Mercado Pago*.
+- Cancelling again an already cancelled budget answers `BudgetCancelled` again without calling Mercado Pago.
+- `POST /api/budgets/{id}/cancel` (staff) runs the same handler as the command — for support and demos while the
+  orchestrator (F4-13) does not exist. Customers ask the OS Service, which applies the "completed" rule.
+
 ## Saga messages
 
 The Billing Service **publishes** these events (ADR-011) with MassTransit 8.5 over RabbitMQ. They go through the
@@ -135,6 +168,26 @@ delivered after it commits — a crash never loses an event, and a rolled-back c
 | `BudgetRejected` | `ServiceOrderId`, `BudgetId`, `OccurredAt` | customer/staff rejected |
 | `PaymentConfirmed` | `ServiceOrderId`, `PaymentId`, `BudgetId`, `AmountInCents`, `OccurredAt` | Mercado Pago `processed` |
 | `PaymentFailed` | `ServiceOrderId`, `PaymentId`, `BudgetId`, `Reason`, `OccurredAt` | order `expired` / `canceled` / `failed` |
+| `BudgetCancelled` | `ServiceOrderId`, `BudgetId`, `OccurredAt` | answer to `CancelBudget` (payment cancelled/refunded first); again on repeats |
+
+It **consumes** one command:
+
+| Command (`TorqueOS.Contracts.Billing`) | Fields | Queue | Answer |
+|---|---|---|---|
+| `CancelBudget` | `ServiceOrderId` | `billing.cancel-budget` | `BudgetCancelled` |
+
+- Send it to `queue:billing.cancel-budget`, or publish it (the queue is bound to the `TorqueOS.Contracts.Billing:CancelBudget`
+  exchange). The EF Core **inbox** drops redeliveries of the same `MessageId`.
+- Mercado Pago or database failures are retried (1 s, 5 s, 15 s); business conflicts (e.g. budget `REJECTED`) and unknown
+  service orders are not. A message that still fails goes to `billing.cancel-budget_error`; move it back with the
+  RabbitMQ shovel/"Move messages" once the cause is fixed.
+- Local test without the OS Service — RabbitMQ UI → *Exchanges* → `TorqueOS.Contracts.Billing:CancelBudget` → *Publish
+  message*, property `content_type` = `application/vnd.masstransit+json`, payload:
+
+  ```json
+  { "messageId": "<new guid>", "messageType": ["urn:message:TorqueOS.Contracts.Billing:CancelBudget"],
+    "message": { "serviceOrderId": "<guid>" } }
+  ```
 
 **For consumers (OS Service, F4-13):**
 
@@ -148,7 +201,8 @@ delivered after it commits — a crash never loses an event, and a rolled-back c
 - Money in cents (`int`), timestamps in UTC.
 - Evolution: fields are only ever added. A breaking change gets a new type (e.g. `PaymentConfirmedV2`).
 
-**Payment history:** every payment transition (`created`, `confirmed`, `failed`) is appended to MongoDB
+**Payment history:** every payment transition (`created`, `confirmed`, `failed`, `cancelled`, `refunded`) and every
+Mercado Pago refusal during a cancellation (`cancel_failed`, `refund_failed`, with the error in `reason`) is appended to MongoDB
 `payment_events` with the Mercado Pago order as read at that moment (`providerSnapshot`). Raw webhook bodies stay in
 `mercadopago_notifications`.
 

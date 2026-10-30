@@ -38,6 +38,7 @@ public class BudgetPersistenceTests
     [InlineData("PENDING", BudgetStatus.Status.Pending)]
     [InlineData("APPROVED", BudgetStatus.Status.Approved)]
     [InlineData("REJECTED", BudgetStatus.Status.Rejected)]
+    [InlineData("CANCELLED", BudgetStatus.Status.Cancelled)]
     public void ParseStatus_KnownValue_ReturnsStatus(string value, BudgetStatus.Status expected)
     {
         BudgetConfiguration.ParseStatus(value).Value.Should().Be(expected);
@@ -46,8 +47,16 @@ public class BudgetPersistenceTests
     [Fact]
     public void ParseStatus_UnknownValue_ThrowsInvalidOperationException()
     {
-        var act = () => BudgetConfiguration.ParseStatus("CANCELLED");
+        var act = () => BudgetConfiguration.ParseStatus("ARCHIVED");
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*CANCELLED*");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*ARCHIVED*");
+    }
+
+    [Theory]
+    [InlineData("CANCELLED", PaymentStatus.Status.Cancelled)]
+    [InlineData("REFUNDED", PaymentStatus.Status.Refunded)]
+    public void PaymentParseStatus_CompensationValues_ReturnStatus(string value, PaymentStatus.Status expected)
+    {
+        PaymentConfiguration.ParseStatus(value).Value.Should().Be(expected);
     }
 }
