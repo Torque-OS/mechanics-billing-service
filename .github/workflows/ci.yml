@@ -8,29 +8,113 @@ on:
 
 jobs:
   build-and-test:
-    name: Build, Test & Docker Build
+    name: Build, Test & Quality Gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
 
+      - name: Setup Java (required by SonarScanner)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Restore dependencies
         run: dotnet restore
+
+      - name: Install .NET global tools
+        run: |
+          dotnet tool install -g dotnet-sonarscanner
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      # F4-30: SonarCloud quality gate (ADR-011 stack, same convention as mechanics-software's
+      # coverage.yml). Needs the SONAR_TOKEN repo secret and a SonarCloud project with this key
+      # under the rnataoliveira org — see README.
+      - name: Begin SonarCloud analysis
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          dotnet sonarscanner begin \
+            /k:"rnataoliveira_mechanics-billing-service" \
+            /o:"rnataoliveira" \
+            /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.cs.opencover.reportsPaths="coverage-results/**/coverage.opencover.xml" \
+            /d:sonar.exclusions="**/Migrations/**,**/obj/**,**/bin/**,k8s/**,docker-compose*.yml,**/appsettings.Development.json" \
+            /d:sonar.coverage.exclusions="**/Migrations/**,**/obj/**,**/bin/**,**/Program.cs"
 
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
-      - name: Test
-        run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage"
+      - name: Test with coverage
+        run: |
+          dotnet test --no-build --configuration Release \
+            --settings coverlet.runsettings \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./coverage-results \
+            --logger "trx;LogFileName=test-results.trx"
 
-      # TODO(F4-30): add SonarQube (or similar) quality gate once the service has real code.
+      - name: End SonarCloud analysis
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: dotnet sonarscanner end
+
+      - name: Enforce 80% line coverage threshold
+        run: |
+          python3 - <<'PYEOF'
+          import xml.etree.ElementTree as ET, glob, sys
+
+          files = glob.glob("coverage-results/**/coverage.cobertura.xml", recursive=True)
+          if not files:
+              print("No coverage file found", file=sys.stderr)
+              sys.exit(1)
+
+          root = ET.parse(files[0]).getroot()
+          line_pct = float(root.get("line-rate", 0)) * 100
+          branch_pct = float(root.get("branch-rate", 0)) * 100
+
+          print(f"Line coverage:   {line_pct:.1f}%")
+          print(f"Branch coverage: {branch_pct:.1f}%")
+
+          if line_pct < 80:
+              print(f"FAILED: line coverage {line_pct:.1f}% is below the 80% minimum.", file=sys.stderr)
+              sys.exit(1)
+
+          print("Coverage threshold met.")
+          PYEOF
+
+      - name: Post coverage summary on PR
+        if: github.event_name == 'pull_request'
+        uses: irongut/CodeCoverageSummary@51cc3a756ddcd398d447c044c02cb6aa83fdae95 # v1.3.0
+        with:
+          filename: coverage-results/**/coverage.cobertura.xml
+          badge: true
+          fail_below_min: false
+          format: markdown
+          hide_branch_rate: false
+          hide_complexity: true
+          indicators: true
+          output: both
+          thresholds: '80 90'
+
+      - name: Add PR comment with coverage summary
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
+        with:
+          recreate: true
+          path: code-coverage-results.md
 
       - name: Build Docker image
         run: docker build -t mechanics-billing-service:ci .
-
-      # TODO(F4-33): push image and deploy to Kubernetes once the cluster/secrets are wired.

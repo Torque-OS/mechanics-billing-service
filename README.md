@@ -38,8 +38,30 @@ The API listens on `http://localhost:8081`, with `GET /health` for a liveness ch
 src/MechanicsSoftware.BillingService.Api/   ASP.NET Core Web API (health endpoint only, for now)
 tests/MechanicsSoftware.BillingService.UnitTests/
 k8s/                                        Namespace, Deployment, Service, ConfigMap, Secret, HPA
-.github/workflows/ci.yml                    Build, test, Docker build (SonarQube + deploy: F4-30/F4-33)
+.github/workflows/ci.yml                    Build, test, coverage gate, SonarCloud, Docker build (F4-30)
+.github/workflows/deploy.yml                Push image to GHCR, deploy to EKS (F4-33)
 ```
+
+## CI/CD
+
+- **`ci.yml`** (F4-30) — on every push/PR to `main`: build, run unit tests with coverage, enforce
+  an 80% line-coverage gate, run a SonarCloud scan, and build the Docker image. The SonarCloud
+  steps are `continue-on-error`, so a missing `SONAR_TOKEN` degrades to "no quality report" rather
+  than failing the whole pipeline — **requires**:
+  - The `SONAR_TOKEN` repo secret.
+  - A SonarCloud project with key `rnataoliveira_mechanics-billing-service` under the
+    `rnataoliveira` org (auto-provisioned on first scan if using SonarCloud's GitHub-connected
+    CI-based analysis; otherwise create it manually first).
+- **`deploy.yml`** (F4-33) — on a successful `ci.yml` run on `main`: build and push the image to
+  GHCR, then apply the `k8s/` manifests to the `mechanics-billing` namespace of the shared EKS
+  cluster (the same cluster `mechanics-software` deploys to, per ADR-010 — provisioned by
+  [`mechanics-infra-k8s`](https://github.com/Torque-OS/mechanics-infra-k8s), F4-08/F4-09) —
+  **requires** these repo secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (same IAM user as
+  `mechanics-software`), `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `MONGO_CONNECTION_STRING`,
+  `JWT_SECRET`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET`,
+  `MERCADOPAGO_EXTERNAL_POS_ID`, `RABBITMQ_CONNECTION_STRING`. None of these are set yet, and the
+  EKS cluster isn't currently running — `deploy.yml` will fail at the `aws eks update-kubeconfig`
+  step until both exist. The pipeline is ready; the infrastructure to run it against isn't.
 
 ## Contributing
 
