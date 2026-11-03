@@ -1,0 +1,124 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+# F4-33: deploys into the mechanics-billing namespace of the shared EKS cluster provisioned by
+# mechanics-infra-k8s (ADR-010 — one cluster, one namespace per microservice). Needs:
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (same IAM user as mechanics-software), and this
+# repo's own DB_HOST / DB_USER / DB_PASSWORD / MONGO_CONNECTION_STRING / JWT_SECRET /
+# MERCADOPAGO_ACCESS_TOKEN / MERCADOPAGO_WEBHOOK_SECRET / MERCADOPAGO_EXTERNAL_POS_ID /
+# RABBITMQ_CONNECTION_STRING secrets — see README.
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: mechanics-software
+  NAMESPACE: mechanics-billing
+  DEPLOYMENT: mechanics-billing-api
+
+jobs:
+  build-and-push:
+    name: Build & Push Docker image to GHCR
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      sha_tag: ${{ steps.sha.outputs.short }}
+      image_name: ${{ steps.image.outputs.name }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=$(echo '${{ github.event.workflow_run.head_sha }}' | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Compute lowercase image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.image.outputs.name }}:sha-${{ steps.sha.outputs.short }}
+            ${{ steps.image.outputs.name }}:latest
+
+  deploy:
+    name: Apply K8s manifests
+    needs: [build-and-push]
+    if: ${{ github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      - name: Render secrets manifest
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          MONGO_CONNECTION_STRING: ${{ secrets.MONGO_CONNECTION_STRING }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          MERCADOPAGO_ACCESS_TOKEN: ${{ secrets.MERCADOPAGO_ACCESS_TOKEN }}
+          MERCADOPAGO_WEBHOOK_SECRET: ${{ secrets.MERCADOPAGO_WEBHOOK_SECRET }}
+          MERCADOPAGO_EXTERNAL_POS_ID: ${{ secrets.MERCADOPAGO_EXTERNAL_POS_ID }}
+          RABBITMQ_CONNECTION_STRING: ${{ secrets.RABBITMQ_CONNECTION_STRING }}
+        run: envsubst < k8s/secret.yaml > /tmp/secret.rendered.yaml && cp /tmp/secret.rendered.yaml k8s/secret.yaml
+
+      - name: Pin image tag in deployment manifest
+        run: |
+          sed -i "s|ghcr.io/${GITHUB_REPOSITORY,,}:latest|ghcr.io/${GITHUB_REPOSITORY,,}:sha-${{ needs.build-and-push.outputs.sha_tag }}|g" \
+            k8s/deployment.yaml
+
+      - name: Apply all K8s manifests
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl create secret docker-registry ghcr-secret \
+            --namespace ${{ env.NAMESPACE }} \
+            --docker-server ghcr.io \
+            --docker-username "${{ github.actor }}" \
+            --docker-password "${{ secrets.GITHUB_TOKEN }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/secret.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/hpa.yaml
+
+      - name: Wait for rollout to complete
+        run: |
+          kubectl rollout status deployment/${{ env.DEPLOYMENT }} \
+            --namespace ${{ env.NAMESPACE }} \
+            --timeout=120s
