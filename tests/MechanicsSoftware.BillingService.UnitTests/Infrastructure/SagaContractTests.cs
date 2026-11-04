@@ -9,10 +9,6 @@ using TorqueOS.Contracts.Billing;
 
 namespace MechanicsSoftware.BillingService.UnitTests.Infrastructure;
 
-/// <summary>
-/// Publishes through MassTransit's in-memory test harness. These tests pin the cross-service contract:
-/// the OS Service (F4-13) consumes these exact message identities and fields.
-/// </summary>
 public sealed class SagaContractTests : IAsyncLifetime
 {
     private ServiceProvider _provider = null!;

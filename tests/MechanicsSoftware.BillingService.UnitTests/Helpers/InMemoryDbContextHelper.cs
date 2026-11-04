@@ -18,7 +18,6 @@ public static class InMemoryDbContextHelper
     }
 }
 
-/// <summary>Counts SaveChanges calls — with the outbox, a published event only leaves if SaveChanges runs.</summary>
 public sealed class SaveChangesCounter : SaveChangesInterceptor
 {
     public int Count { get; private set; }

@@ -5,10 +5,6 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace MechanicsSoftware.BillingService.Infrastructure.Security;
 
-/// <summary>
-/// Validation side of the platform JWT. Secret, issuer and audience must be identical to
-/// mechanics-software and mechanics-lambda, which issue the tokens.
-/// </summary>
 public sealed record JwtSettings(string Secret, string Issuer, string Audience)
 {
     public const string DefaultIssuer = "torque-os";

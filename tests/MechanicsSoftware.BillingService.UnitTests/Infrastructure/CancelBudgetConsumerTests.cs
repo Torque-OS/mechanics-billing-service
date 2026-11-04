@@ -13,16 +13,6 @@ using TorqueOS.Contracts.Billing;
 
 namespace MechanicsSoftware.BillingService.UnitTests.Infrastructure;
 
-/// <summary>
-/// The Saga path end to end in memory: <c>CancelBudget</c> in, <c>BudgetCancelled</c> out through the real publisher.
-/// Retry, inbox and outbox (<see cref="CancelBudgetConsumerDefinition"/>) need PostgreSQL and are checked against the
-/// compose stack.
-/// <para>
-/// The harness is started only right before publishing: its <c>Any&lt;T&gt;()</c> stops waiting once the bus has been
-/// idle for the inactivity timeout (about a second), and seeding the database first can take that long on a cold CI
-/// runner — the wait would then end before the consumer ran.
-/// </para>
-/// </summary>
 public sealed class CancelBudgetConsumerTests : IAsyncLifetime
 {
     private readonly string _databaseName = Guid.NewGuid().ToString();

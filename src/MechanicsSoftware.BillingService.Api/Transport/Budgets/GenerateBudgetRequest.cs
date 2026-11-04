@@ -4,7 +4,6 @@ using MechanicsSoftware.BillingService.Domain.Enums;
 
 namespace MechanicsSoftware.BillingService.Api.Transport.Budgets;
 
-/// <summary>Item snapshot of a service order, as sent by the OS Service (ADR-010).</summary>
 public sealed record GenerateBudgetRequest(
     Guid ServiceOrderId,
     Guid CustomerId,
