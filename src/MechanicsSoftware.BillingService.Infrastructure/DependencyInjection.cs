@@ -42,8 +42,6 @@ public static class DependencyInjection
 
         services.AddScoped<IBillingDbContext>(sp => sp.GetRequiredService<BillingDbContext>());
 
-        // Saga messaging (ADR-011): MassTransit v8 over RabbitMQ with the EF Core bus outbox, so a published
-        // event is committed with the state change and delivered after SaveChanges. Contracts: TorqueOS.Contracts.Billing.
         services.AddMassTransit(bus =>
         {
             bus.AddConsumer<CancelBudgetConsumer, CancelBudgetConsumerDefinition>();
@@ -63,14 +61,12 @@ public static class DependencyInjection
         services.AddScoped<IBudgetEventPublisher, MassTransitBudgetEventPublisher>();
         services.AddScoped<IPaymentEventPublisher, MassTransitPaymentEventPublisher>();
 
-        // MongoDB (ADR-012): raw provider notifications and the payment history. The client connects lazily.
         var mongoUrl = MongoUrl.Create(mongoConnectionString);
         services.AddSingleton<IMongoClient>(_ => new MongoClient(mongoUrl));
         services.AddSingleton(sp => sp.GetRequiredService<IMongoClient>().GetDatabase(mongoUrl.DatabaseName ?? "billing"));
         services.AddScoped<INotificationStore, MongoNotificationStore>();
         services.AddScoped<IPaymentHistory, MongoPaymentHistory>();
 
-        // Mercado Pago (Orders API, dynamic QR).
         services.AddSingleton(MercadoPagoOptions.FromConfiguration(configuration));
         services.AddSingleton<IWebhookSignatureValidator, MercadoPagoSignatureValidator>();
         services.AddHttpClient<IMercadoPagoClient, MercadoPagoClient>(client => client.Timeout = TimeSpan.FromSeconds(15));

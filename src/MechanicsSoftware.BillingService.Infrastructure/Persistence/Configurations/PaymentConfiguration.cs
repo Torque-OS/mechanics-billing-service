@@ -29,7 +29,6 @@ public sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
             .HasColumnName("budget_id")
             .IsRequired();
 
-        // One payment per budget (creation is idempotent per budget).
         builder.HasIndex(p => p.BudgetId)
             .IsUnique()
             .HasDatabaseName("ux_payments_budget_id");

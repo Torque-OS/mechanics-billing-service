@@ -8,10 +8,6 @@ using MechanicsSoftware.BillingService.Application.Exceptions;
 
 namespace MechanicsSoftware.BillingService.Infrastructure.MercadoPago;
 
-/// <summary>
-/// Orders API client for dynamic QR (<c>POST /v1/orders</c>, <c>GET /v1/orders/{id}</c>, refund and cancel).
-/// Every failure — missing configuration, HTTP error, unreadable body — becomes a <see cref="PaymentProviderException"/>.
-/// </summary>
 public sealed class MercadoPagoClient(HttpClient http, MercadoPagoOptions options) : IMercadoPagoClient
 {
     private static readonly JsonSerializerOptions Json = new()
@@ -57,7 +53,6 @@ public sealed class MercadoPagoClient(HttpClient http, MercadoPagoOptions option
         string orderId, string idempotencyKey, CancellationToken cancellationToken = default) =>
         PostOrderActionAsync(orderId, "cancel", idempotencyKey, cancellationToken);
 
-    // POST /v1/orders/{id}/refund (no body = full refund) and /v1/orders/{id}/cancel; both answer with the order.
     private async Task<MercadoPagoOrder> PostOrderActionAsync(
         string orderId, string action, string idempotencyKey, CancellationToken cancellationToken)
     {

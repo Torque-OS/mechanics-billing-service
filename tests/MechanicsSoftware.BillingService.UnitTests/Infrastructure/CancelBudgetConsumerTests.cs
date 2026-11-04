@@ -13,18 +13,13 @@ using TorqueOS.Contracts.Billing;
 
 namespace MechanicsSoftware.BillingService.UnitTests.Infrastructure;
 
-/// <summary>
-/// The Saga path end to end in memory: <c>CancelBudget</c> in, <c>BudgetCancelled</c> out through the real publisher.
-/// Retry, inbox and outbox (<see cref="CancelBudgetConsumerDefinition"/>) need PostgreSQL and are checked against the
-/// compose stack.
-/// </summary>
 public sealed class CancelBudgetConsumerTests : IAsyncLifetime
 {
     private readonly string _databaseName = Guid.NewGuid().ToString();
     private ServiceProvider _provider = null!;
     private ITestHarness _harness = null!;
 
-    public async Task InitializeAsync()
+    public Task InitializeAsync()
     {
         _provider = new ServiceCollection()
             .AddDbContext<BillingDbContext>(options => options.UseInMemoryDatabase(_databaseName))
@@ -36,7 +31,7 @@ public sealed class CancelBudgetConsumerTests : IAsyncLifetime
             .AddMassTransitTestHarness(bus => bus.AddConsumer<CancelBudgetConsumer>())
             .BuildServiceProvider(true);
         _harness = _provider.GetRequiredService<ITestHarness>();
-        await _harness.Start();
+        return Task.CompletedTask;
     }
 
     public async Task DisposeAsync() => await _provider.DisposeAsync();
@@ -55,6 +50,7 @@ public sealed class CancelBudgetConsumerTests : IAsyncLifetime
     public async Task CancelBudget_CancelsTheBudgetAndAnswersBudgetCancelledCorrelatedToTheOrder()
     {
         var budget = await SeedBudgetAsync();
+        await _harness.Start();
 
         await _harness.Bus.Publish(new CancelBudget(budget.ServiceOrderId));
 
@@ -73,6 +69,8 @@ public sealed class CancelBudgetConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CancelBudget_UnknownServiceOrder_FaultsWithoutAnswering()
     {
+        await _harness.Start();
+
         await _harness.Bus.Publish(new CancelBudget(Guid.NewGuid()));
 
         (await _harness.Published.Any<Fault<CancelBudget>>()).Should().BeTrue();

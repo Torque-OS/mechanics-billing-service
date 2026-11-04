@@ -20,11 +20,6 @@ public class BudgetsController(
     GetBudgetHandler getHandler,
     GetBudgetByServiceOrderHandler getByServiceOrderHandler) : ControllerBase
 {
-    /// <summary>
-    /// Generates the budget of a service order from its item snapshot. Idempotent per service order:
-    /// 201 when created, 200 with the existing budget when it already exists.
-    /// The Saga consumer of <c>RequestBudget</c> (F4-13) calls the same handler.
-    /// </summary>
     [HttpPost]
     [Authorize(Policy = Policies.Staff)]
     [ProducesResponseType<BudgetResponse>(StatusCodes.Status201Created)]
@@ -63,7 +58,6 @@ public class BudgetsController(
             new GetBudgetByServiceOrderQuery(serviceOrderId), cancellationToken));
     }
 
-    /// <summary>Approves or rejects a budget. Customers may only decide their own budgets.</summary>
     [HttpPost("{id:guid}/decision")]
     [ProducesResponseType<BudgetResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -78,11 +72,6 @@ public class BudgetsController(
             new DecideBudgetCommand(id, request.Decision, requester), cancellationToken));
     }
 
-    /// <summary>
-    /// Cancels a budget as the Saga's <c>CancelBudget</c> compensation does (same handler): an open QR is cancelled on
-    /// Mercado Pago, a received payment is refunded. Staff only — the customer asks the OS Service, which refuses
-    /// completed orders. Repeating it after a 502 retries without refunding twice.
-    /// </summary>
     [HttpPost("{id:guid}/cancel")]
     [Authorize(Policy = Policies.Staff)]
     [ProducesResponseType<BudgetResponse>(StatusCodes.Status200OK)]

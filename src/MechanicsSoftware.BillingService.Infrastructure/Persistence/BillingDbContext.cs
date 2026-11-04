@@ -17,8 +17,6 @@ public sealed class BillingDbContext : DbContext, IBillingDbContext
     {
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
 
-        // MassTransit transactional outbox (ADR-011): Saga events are stored in the same transaction as the
-        // state change and delivered to RabbitMQ after commit.
         modelBuilder.AddInboxStateEntity();
         modelBuilder.AddOutboxMessageEntity();
         modelBuilder.AddOutboxStateEntity();

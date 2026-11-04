@@ -32,8 +32,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Migrations run on startup, as in mechanics-software (ADR-006). Skipped for non-relational
-// providers (the EF InMemory provider used by the endpoint tests).
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<BillingDbContext>();
@@ -54,7 +52,6 @@ app.MapControllers();
 
 await app.RunAsync();
 
-// Exposed for WebApplicationFactory-based endpoint tests.
 [ExcludeFromCodeCoverage]
 public partial class Program
 {

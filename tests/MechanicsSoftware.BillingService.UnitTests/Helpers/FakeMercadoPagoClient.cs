@@ -4,11 +4,6 @@ using MechanicsSoftware.BillingService.Application.Exceptions;
 
 namespace MechanicsSoftware.BillingService.UnitTests.Helpers;
 
-/// <summary>
-/// In-memory Mercado Pago: creates orders with status <c>created</c> and lets a test move them to any
-/// status, as the real provider would after the buyer pays or the QR expires. Refund and cancel follow the
-/// provider's rules (refund only <c>processed</c>, cancel only <c>created</c>/<c>action_required</c>).
-/// </summary>
 public sealed class FakeMercadoPagoClient : IMercadoPagoClient
 {
     private readonly ConcurrentDictionary<string, MercadoPagoOrder> _orders = new();

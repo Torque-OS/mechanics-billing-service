@@ -10,5 +10,4 @@ coverage-html/
 TestResults/
 *.received.*
 
-# Local secrets (Mercado Pago sandbox credentials) — never commit
 .env

@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# One-time setup of the Mercado Pago sandbox for QR payments: creates a store and a POS (cash register)
-# for the test seller, as required by the Orders API (config.qr.external_pos_id = POS external_id).
-#
-# Usage: scripts/setup-mercadopago-sandbox.sh      (reads MERCADOPAGO_ACCESS_TOKEN from the env or .env)
-# Idempotent: if the POS already exists, it only prints its external_id.
-# Docs: https://www.mercadopago.com.br/developers/en/docs/qr-code/create-store-and-pos
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -18,7 +12,7 @@ API=https://api.mercadopago.com
 STORE_EXTERNAL_ID=TORQUEOSSTORE001
 POS_EXTERNAL_ID=TORQUEOSPOS001
 
-mp() { # mp <method> <path> [json] — never prints the token
+mp() {
   local method="$1" path="$2" body="${3:-}"
   local args=(-sS -X "$method" "$API$path" -H "Authorization: Bearer $MERCADOPAGO_ACCESS_TOKEN" -H 'Content-Type: application/json')
   [ "$method" = POST ] && args+=(-H "X-Idempotency-Key: torqueos-setup-$(date +%s)-$RANDOM")

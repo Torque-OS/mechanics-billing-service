@@ -8,10 +8,6 @@ namespace MechanicsSoftware.BillingService.Application.UseCases.Payments.Handler
 
 public sealed record CreatePaymentCommand(Guid BudgetId, BudgetRequester Requester);
 
-/// <summary>
-/// Charges an approved budget with a dynamic Mercado Pago QR. One payment per budget: a repeated request
-/// returns the existing payment. Nothing is stored when Mercado Pago rejects the order.
-/// </summary>
 public sealed class CreatePaymentHandler(IBillingDbContext db, IMercadoPagoClient mercadoPago, IPaymentHistory history)
 {
     public async Task<CreatePaymentResult> ExecuteAsync(

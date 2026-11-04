@@ -46,8 +46,6 @@ public class PaymentHandlersTests
     private static MercadoPagoNotification Notification(string? dataId, string action = "order.processed") =>
         new("ts=1,v1=abc", "req-1", dataId, action, "{\"action\":\"" + action + "\"}", DateTime.UtcNow);
 
-    // --- Create -------------------------------------------------------------------------
-
     [Fact]
     public async Task Create_ApprovedBudget_CreatesQrOrderAndPersistsPendingPayment()
     {
@@ -159,8 +157,6 @@ public class PaymentHandlersTests
         (await db.Payments.AnyAsync()).Should().BeFalse();
     }
 
-    // --- Get / Verify -------------------------------------------------------------------
-
     [Fact]
     public async Task Get_UnknownPayment_ThrowsNotFound()
     {
@@ -233,8 +229,6 @@ public class PaymentHandlersTests
         await act.Should().ThrowAsync<ConflictException>();
     }
 
-    // --- Webhook ------------------------------------------------------------------------
-
     [Fact]
     public async Task Notification_InvalidSignature_ThrowsWithoutStoringOrSyncing()
     {
@@ -295,8 +289,6 @@ public class PaymentHandlersTests
 
         outcome.Should().Be(NotificationOutcome.Ignored);
     }
-
-    // --- History (MongoDB payment_events) and outbox ordering ---------------------------
 
     [Fact]
     public async Task Create_RecordsCreatedHistoryWithProviderSnapshot()
@@ -380,8 +372,6 @@ public class PaymentHandlersTests
         await using var after = InMemoryDbContextHelper.Create(databaseName);
         after.Payments.Single(p => p.Id == created.Id).Status.ToString().Should().Be("CONFIRMED");
     }
-
-    // --- Refund reported by Mercado Pago (F4-17) -------------------------------------------
 
     private async Task<PaymentResponse> SeedConfirmedPaymentAsync(BillingDbContext db)
     {
