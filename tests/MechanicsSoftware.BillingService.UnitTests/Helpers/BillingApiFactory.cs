@@ -11,11 +11,6 @@ using Microsoft.Extensions.Hosting;
 
 namespace MechanicsSoftware.BillingService.UnitTests.Helpers;
 
-/// <summary>
-/// Hosts the real API pipeline (auth, policies, middleware, controllers, webhook signature validation)
-/// over EF InMemory, in-memory notification store and payment history, a fake Mercado Pago and recording
-/// publishers — no PostgreSQL, MongoDB, RabbitMQ or network needed.
-/// </summary>
 public sealed class BillingApiFactory : WebApplicationFactory<Program>
 {
     public const string WebhookSecret = "test-webhook-secret";
@@ -58,8 +53,6 @@ public sealed class BillingApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IPaymentHistory>();
             services.AddSingleton<IPaymentHistory>(History);
 
-            // No broker or PostgreSQL here: drop MassTransit's bus and outbox-delivery hosted services.
-            // Publishing is covered by the recording publishers above and by SagaContractTests (test harness).
             services.RemoveAll<IHostedService>();
         });
     }

@@ -5,16 +5,10 @@ namespace MechanicsSoftware.BillingService.Application.UseCases.Payments.Handler
 
 public enum NotificationOutcome
 {
-    /// <summary>Signature valid and stored, but it does not refer to a payment of ours (or carries no id).</summary>
     Ignored,
-    /// <summary>The referenced payment was re-read from Mercado Pago.</summary>
     Synchronized
 }
 
-/// <summary>
-/// Webhook entry point: rejects bad signatures, keeps the raw notification, then verifies the payment
-/// against Mercado Pago instead of trusting the notification body.
-/// </summary>
 public sealed class HandleMercadoPagoNotificationHandler(
     IBillingDbContext db,
     IWebhookSignatureValidator signatureValidator,

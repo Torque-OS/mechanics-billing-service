@@ -10,10 +10,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MechanicsSoftware.BillingService.UnitTests.Application.Budgets;
 
-/// <summary>
-/// Business rules (user, 2026-10-29): no payment → only the budget is cancelled; open QR → cancelled on Mercado Pago,
-/// no refund; received payment → the cancellation refunds it. A completed order never gets here (the OS refuses it).
-/// </summary>
 public class CancelBudgetHandlerTests
 {
     private readonly string _databaseName = Guid.NewGuid().ToString();
@@ -35,7 +31,6 @@ public class CancelBudgetHandlerTests
         return budget;
     }
 
-    /// <summary>Approved budget with a QR payment; <paramref name="orderStatus"/> is what Mercado Pago reports now.</summary>
     private async Task<(Budget Budget, Payment Payment)> SeedPaymentAsync(string orderStatus = "created", bool confirmed = false)
     {
         var budget = await SeedBudgetAsync();
@@ -63,8 +58,6 @@ public class CancelBudgetHandlerTests
     }
 
     private string[] Published(Budget budget) => _publisher.For(budget.ServiceOrderId).Select(e => e.Name).ToArray();
-
-    // --- One effect per payment state ------------------------------------------------------
 
     [Theory]
     [InlineData(false)]
@@ -141,8 +134,6 @@ public class CancelBudgetHandlerTests
         Published(budget).Should().Equal("BudgetCancelled");
     }
 
-    // --- Mercado Pago moved since our last sync -------------------------------------------
-
     [Fact]
     public async Task PendingButPaidAMomentAgo_IsRefundedNotLeftBehind()
     {
@@ -199,8 +190,6 @@ public class CancelBudgetHandlerTests
         (await CommittedStatusAsync(budget.Id)).Should().Be(("APPROVED", "CONFIRMED"));
         _publisher.For(budget.ServiceOrderId).Should().BeEmpty();
     }
-
-    // --- Failures and repetition ----------------------------------------------------------
 
     [Fact]
     public async Task RefundFails_NothingChanges_HistoryRecordsIt_AndRepeatingRetriesWithTheSameKey()

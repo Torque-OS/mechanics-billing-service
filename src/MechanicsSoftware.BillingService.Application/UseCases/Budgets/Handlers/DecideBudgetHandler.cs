@@ -23,7 +23,6 @@ public sealed class DecideBudgetHandler(IBillingDbContext db, IBudgetEventPublis
         else
             budget.Reject();
 
-        // Transactional outbox: the event is stored with the decision and sent only once SaveChanges commits.
         if (command.Decision == BudgetDecision.Approve)
             await publisher.PublishBudgetApprovedAsync(budget, cancellationToken);
         else

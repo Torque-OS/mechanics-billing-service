@@ -6,10 +6,6 @@ using MongoDB.Driver;
 
 namespace MechanicsSoftware.BillingService.Infrastructure.Messaging;
 
-/// <summary>
-/// Payment lifecycle audit trail in MongoDB (<c>payment_events</c>, append-only, ADR-012). Failures are logged and
-/// swallowed: the payment is already committed and its Saga event is in the outbox, so history never blocks them.
-/// </summary>
 [ExcludeFromCodeCoverage(Justification = "Thin MongoDB adapter; exercised manually against the compose stack.")]
 public sealed partial class MongoPaymentHistory(IMongoDatabase database, ILogger<MongoPaymentHistory> logger)
     : IPaymentHistory

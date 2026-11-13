@@ -20,7 +20,6 @@ public class PaymentsEndpointTests(BillingApiFactory factory) : IClassFixture<Bi
         return client;
     }
 
-    /// <summary>Generates a budget through the API and, unless told otherwise, approves it as its customer.</summary>
     private async Task<BudgetResponse> BudgetAsync(Guid customerId, bool approve = true)
     {
         var snapshot = new
@@ -67,8 +66,6 @@ public class PaymentsEndpointTests(BillingApiFactory factory) : IClassFixture<Bi
 
     private async Task<string> StatusOf(Guid paymentId) =>
         (await ClientAs(TestTokens.Staff()).GetFromJsonAsync<PaymentResponse>($"/api/payments/{paymentId}"))!.Status;
-
-    // --- Create -------------------------------------------------------------------------
 
     [Fact]
     public async Task Create_ApprovedBudget_Returns201PendingWithQrData()
@@ -158,8 +155,6 @@ public class PaymentsEndpointTests(BillingApiFactory factory) : IClassFixture<Bi
         (await response.Content.ReadAsStringAsync()).Should().Contain("Payment provider unavailable").And.NotContain("fake");
     }
 
-    // --- Query / QR ---------------------------------------------------------------------
-
     [Fact]
     public async Task Get_AsCustomer_Returns403()
     {
@@ -181,7 +176,7 @@ public class PaymentsEndpointTests(BillingApiFactory factory) : IClassFixture<Bi
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentType!.MediaType.Should().Be("image/png");
         var bytes = await response.Content.ReadAsByteArrayAsync();
-        bytes.Take(8).Should().Equal(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A); // PNG signature
+        bytes.Take(8).Should().Equal(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A);
     }
 
     [Fact]
@@ -201,8 +196,6 @@ public class PaymentsEndpointTests(BillingApiFactory factory) : IClassFixture<Bi
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
-
-    // --- Webhook ------------------------------------------------------------------------
 
     [Fact]
     public async Task Webhook_ValidSignatureProcessed_ConfirmsAndPublishesOnceEvenIfRepeated()
@@ -264,8 +257,6 @@ public class PaymentsEndpointTests(BillingApiFactory factory) : IClassFixture<Bi
         (await response.Content.ReadAsStringAsync()).Should().Contain("Ignored");
     }
 
-    // --- Verify -------------------------------------------------------------------------
-
     [Fact]
     public async Task Verify_ReflectsProviderStatus()
     {
@@ -293,8 +284,6 @@ public class PaymentsEndpointTests(BillingApiFactory factory) : IClassFixture<Bi
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
-
-    // --- Cancel budget (Saga compensation, F4-17) -----------------------------------------
 
     private Task<HttpResponseMessage> CancelAsync(string token, Guid budgetId) =>
         ClientAs(token).PostAsync($"/api/budgets/{budgetId}/cancel", null);

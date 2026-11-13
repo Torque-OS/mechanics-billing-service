@@ -11,14 +11,12 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
-        // Budgets
         services.AddScoped<GenerateBudgetHandler>();
         services.AddScoped<DecideBudgetHandler>();
         services.AddScoped<CancelBudgetHandler>();
         services.AddScoped<GetBudgetHandler>();
         services.AddScoped<GetBudgetByServiceOrderHandler>();
 
-        // Payments
         services.AddScoped<PaymentSynchronizer>();
         services.AddScoped<CreatePaymentHandler>();
         services.AddScoped<GetPaymentHandler>();

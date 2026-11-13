@@ -5,10 +5,6 @@ using MechanicsSoftware.BillingService.Domain.Exceptions;
 
 namespace MechanicsSoftware.BillingService.Api.Middleware;
 
-/// <summary>
-/// Same error contract as mechanics-software: <c>{ "error": "..." }</c> with 401/403/404/409/422/500,
-/// plus 502 when the payment provider fails.
-/// </summary>
 [ExcludeFromCodeCoverage]
 public sealed partial class ExceptionHandlingMiddleware(
     RequestDelegate next, ILogger<ExceptionHandlingMiddleware> logger)
@@ -48,7 +44,6 @@ public sealed partial class ExceptionHandlingMiddleware(
         await context.Response.WriteAsync(body);
     }
 
-    // Provider details (status codes, Mercado Pago error bodies) go to the log, not to the client.
     private string LogProviderFailure(PaymentProviderException exception)
     {
         LogPaymentProviderFailure(exception);

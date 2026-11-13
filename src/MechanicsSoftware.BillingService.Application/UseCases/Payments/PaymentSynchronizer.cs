@@ -6,19 +6,9 @@ using MechanicsSoftware.BillingService.Domain.ValueObjects;
 
 namespace MechanicsSoftware.BillingService.Application.UseCases.Payments;
 
-/// <summary>
-/// Reads the order from Mercado Pago and records the outcome — the provider, not the webhook body, is the
-/// source of truth. Applies at most once: a payment that already reached a final status is left untouched,
-/// so repeated or out-of-order notifications never publish a second Saga event. A confirmed payment only moves on
-/// when Mercado Pago reports it refunded (e.g. from the panel); that publishes nothing — a refund requested by the
-/// Saga is answered by <c>BudgetCancelled</c> (F4-17).
-/// The event goes through the transactional outbox (published before SaveChanges, sent once it commits);
-/// the history entry is written after the commit.
-/// </summary>
 public sealed class PaymentSynchronizer(
     IBillingDbContext db, IMercadoPagoClient mercadoPago, IPaymentEventPublisher publisher, IPaymentHistory history)
 {
-    // "refunded" while still pending here: paid and given back before we saw it — the order was never paid for.
     private static readonly HashSet<string> FailedStatuses =
         new(StringComparer.OrdinalIgnoreCase) { "canceled", "expired", "failed", "refunded" };
 
@@ -56,7 +46,6 @@ public sealed class PaymentSynchronizer(
         }
         else
         {
-            // Any other status (created, action_required, …) means still pending: nothing to record.
             return;
         }
 

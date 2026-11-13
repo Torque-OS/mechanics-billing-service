@@ -6,7 +6,6 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace MechanicsSoftware.BillingService.UnitTests.Helpers;
 
-/// <summary>Issues tokens shaped like the platform's: HS256, <c>sub</c>, <c>role</c>, iss/aud defaults.</summary>
 public static class TestTokens
 {
     public const string Secret = "test-secret-for-billing-endpoint-tests-32+";

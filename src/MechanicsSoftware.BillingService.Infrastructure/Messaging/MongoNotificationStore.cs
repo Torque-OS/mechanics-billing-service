@@ -5,10 +5,6 @@ using MongoDB.Driver;
 
 namespace MechanicsSoftware.BillingService.Infrastructure.Messaging;
 
-/// <summary>
-/// Raw Mercado Pago webhook payloads, append-only, in MongoDB (ADR-012). The body is stored as a document
-/// when it is valid JSON and as a string otherwise, so nothing received is ever lost.
-/// </summary>
 [ExcludeFromCodeCoverage(Justification = "Thin MongoDB adapter; exercised manually against the compose stack.")]
 public sealed class MongoNotificationStore(IMongoDatabase database) : INotificationStore
 {

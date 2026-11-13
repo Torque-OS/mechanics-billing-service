@@ -57,10 +57,6 @@ public sealed class Budget : Entity<Guid>
 
     public bool IsCancelled => Status.Value == BudgetStatus.Status.Cancelled;
 
-    /// <summary>
-    /// Saga compensation (ADR-011): the service order was cancelled. Money must never be left behind — while the
-    /// payment is open (<c>PENDING</c>) or received (<c>CONFIRMED</c>) it has to be cancelled or refunded first.
-    /// </summary>
     public void Cancel(Payment? payment)
     {
         if (payment is not null && payment.BudgetId != Id)

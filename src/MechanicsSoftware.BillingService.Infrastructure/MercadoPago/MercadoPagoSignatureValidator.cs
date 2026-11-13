@@ -4,16 +4,6 @@ using MechanicsSoftware.BillingService.Application.Abstractions;
 
 namespace MechanicsSoftware.BillingService.Infrastructure.MercadoPago;
 
-/// <summary>
-/// Mercado Pago webhook signature: header <c>x-signature: ts=&lt;ts&gt;,v1=&lt;hex&gt;</c>; manifest
-/// <c>id:&lt;data.id&gt;;request-id:&lt;x-request-id&gt;;ts:&lt;ts&gt;;</c> (absent pairs are omitted);
-/// <c>v1</c> = HMAC-SHA256(secret, manifest) in hex. Fails closed: no secret configured means nothing is valid.
-/// <para>
-/// The docs say to lower-case an alphanumeric <c>data.id</c>, but Order notifications captured in the sandbox
-/// (2026-10-26) are signed with the id exactly as received (<c>ORD…</c> upper-case). Both forms are accepted;
-/// either one still requires the secret.
-/// </para>
-/// </summary>
 public sealed class MercadoPagoSignatureValidator(MercadoPagoOptions options) : IWebhookSignatureValidator
 {
     public bool IsValid(string? signatureHeader, string? requestId, string? dataId)
