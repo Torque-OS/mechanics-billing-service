@@ -235,11 +235,11 @@ ASPNETCORE_ENVIRONMENT=Development dotnet dotnet-ef migrations add <Name> \
   --output-dir Persistence/Migrations
 ```
 
-## Testing
+## Testing & Coverage Evidence
 
 ```bash
-dotnet test
-```
+dotnet test --collect:"XPlat Code Coverage" --settings coverlet.runsettings
+
 
 Domain, application and persistence tests, plus endpoint tests that run the real HTTP pipeline
 (JWT, policies, error mapping) over EF InMemory — no PostgreSQL or broker needed.
