@@ -13,6 +13,8 @@ public sealed class BillingDbContext : DbContext, IBillingDbContext
     public DbSet<Budget> Budgets { get; set; } = null!;
     public DbSet<Payment> Payments { get; set; } = null!;
 
+    public void DiscardChanges() => ChangeTracker.Clear();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());

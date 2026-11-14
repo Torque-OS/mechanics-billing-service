@@ -24,7 +24,8 @@ public class PaymentHandlersTests
     public PaymentHandlersTests() =>
         _signature.Setup(v => v.IsValid(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>())).Returns(true);
 
-    private CreatePaymentHandler CreateHandler(BillingDbContext db) => new(db, _mercadoPago, _history);
+    private CreatePaymentHandler CreateHandler(BillingDbContext db) =>
+        new(db, _mercadoPago, _history, [TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(1)]);
     private PaymentSynchronizer Synchronizer(BillingDbContext db) => new(db, _mercadoPago, _publisher.Object, _history);
     private HandleMercadoPagoNotificationHandler NotificationHandler(BillingDbContext db) =>
         new(db, _signature.Object, _store.Object, Synchronizer(db));
@@ -60,8 +61,8 @@ public class PaymentHandlersTests
         result.Payment.QrData.Should().NotBeNullOrWhiteSpace();
         result.Payment.ProviderOrderId.Should().StartWith("ORD");
         var call = _mercadoPago.CreateCalls.Single();
-        call.IdempotencyKey.Should().Be(result.Payment.Id.ToString());
-        call.Request.ExternalReference.Should().Be(result.Payment.Id.ToString());
+        call.IdempotencyKey.Should().Be(budget.Id.ToString());
+        call.Request.ExternalReference.Should().Be(budget.Id.ToString());
         call.Request.Amount.Should().Be(budget.Total);
         (await db.Payments.SingleAsync()).Id.Should().Be(result.Payment.Id);
     }
@@ -436,5 +437,149 @@ public class PaymentHandlersTests
         await new VerifyPaymentHandler(db, Synchronizer(db)).ExecuteAsync(created.Id);
 
         _mercadoPago.GetCalls.Should().Be(calls);
+    }
+
+    [Fact]
+    public async Task Create_ConcurrentRequestForSameBudget_ReturnsTheWinnersPaymentAndQrWithoutAnotherProviderOrder()
+    {
+        var databaseName = Guid.NewGuid().ToString();
+        Budget budget;
+        await using (var seed = InMemoryDbContextHelper.Create(databaseName))
+            budget = await SeedApprovedBudgetAsync(seed);
+        CreatePaymentResult? winner = null;
+        var simulator = new ConcurrentWriteSimulator(
+            async () =>
+            {
+                await using var other = InMemoryDbContextHelper.Create(databaseName);
+                winner = await CreateHandler(other).ExecuteAsync(new CreatePaymentCommand(budget.Id, BudgetFixtures.StaffRequester));
+            },
+            () => new DbUpdateException("duplicate key value violates unique constraint \"ux_payments_budget_id\""));
+        await using var db = InMemoryDbContextHelper.Create(databaseName, simulator);
+
+        var loser = await CreateHandler(db).ExecuteAsync(new CreatePaymentCommand(budget.Id, BudgetFixtures.StaffRequester));
+
+        winner!.Created.Should().BeTrue();
+        loser.Created.Should().BeFalse();
+        loser.Payment.Id.Should().Be(winner.Payment.Id);
+        loser.Payment.QrData.Should().Be(winner.Payment.QrData);
+        _mercadoPago.CreateCalls.Should().HaveCount(2).And.OnlyContain(c => c.IdempotencyKey == budget.Id.ToString());
+        _history.For(winner.Payment.Id).Should().ContainSingle(e => e.Event == "created");
+        await using var check = InMemoryDbContextHelper.Create(databaseName);
+        (await check.Payments.CountAsync(p => p.BudgetId == budget.Id)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Create_SaveFailsWithoutAnotherPayment_Rethrows()
+    {
+        var databaseName = Guid.NewGuid().ToString();
+        Budget budget;
+        await using (var seed = InMemoryDbContextHelper.Create(databaseName))
+            budget = await SeedApprovedBudgetAsync(seed);
+        var simulator = new ConcurrentWriteSimulator(() => Task.CompletedTask, () => new DbUpdateException("database unavailable"));
+        await using var db = InMemoryDbContextHelper.Create(databaseName, simulator);
+
+        var act = () => CreateHandler(db).ExecuteAsync(new CreatePaymentCommand(budget.Id, BudgetFixtures.StaffRequester));
+
+        await act.Should().ThrowAsync<DbUpdateException>().WithMessage("database unavailable");
+    }
+
+    [Fact]
+    public async Task Create_RetryAfterTheDatabaseFailed_ReusesTheProviderOrder()
+    {
+        var databaseName = Guid.NewGuid().ToString();
+        Budget budget;
+        await using (var seed = InMemoryDbContextHelper.Create(databaseName))
+            budget = await SeedApprovedBudgetAsync(seed);
+        await using (var failing = InMemoryDbContextHelper.Create(databaseName,
+                         new ConcurrentWriteSimulator(() => Task.CompletedTask, () => new DbUpdateException("database unavailable"))))
+        {
+            var act = () => CreateHandler(failing).ExecuteAsync(new CreatePaymentCommand(budget.Id, BudgetFixtures.StaffRequester));
+            await act.Should().ThrowAsync<DbUpdateException>();
+        }
+
+        await using var db = InMemoryDbContextHelper.Create(databaseName);
+        var retry = await CreateHandler(db).ExecuteAsync(new CreatePaymentCommand(budget.Id, BudgetFixtures.StaffRequester));
+
+        retry.Created.Should().BeTrue();
+        _mercadoPago.CreateCalls.Select(c => c.IdempotencyKey).Distinct().Should().ContainSingle();
+        retry.Payment.ProviderOrderId.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Verify_ConcurrentSynchronization_ReturnsTheStoredStateWithoutRecordingHistoryTwice()
+    {
+        var databaseName = Guid.NewGuid().ToString();
+        PaymentResponse created;
+        await using (var seed = InMemoryDbContextHelper.Create(databaseName))
+            created = await SeedPaymentAsync(seed);
+        _mercadoPago.SetStatus(created.ProviderOrderId!, "processed");
+        var simulator = new ConcurrentWriteSimulator(
+            async () =>
+            {
+                await using var other = InMemoryDbContextHelper.Create(databaseName);
+                (await other.Payments.SingleAsync(p => p.Id == created.Id)).Confirm();
+                await other.SaveChangesAsync();
+            },
+            () => new DbUpdateConcurrencyException("The payment was changed by another request."));
+        await using var db = InMemoryDbContextHelper.Create(databaseName, simulator);
+
+        var result = await new VerifyPaymentHandler(db, Synchronizer(db)).ExecuteAsync(created.Id);
+
+        result.Status.Should().Be("CONFIRMED");
+        result.ConfirmedAt.Should().NotBeNull();
+        _history.For(created.Id).Select(e => e.Event).Should().Equal("created");
+        db.ChangeTracker.HasChanges().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Notification_ConcurrentSynchronization_IsAcknowledgedWithoutError()
+    {
+        var databaseName = Guid.NewGuid().ToString();
+        PaymentResponse created;
+        await using (var seed = InMemoryDbContextHelper.Create(databaseName))
+            created = await SeedPaymentAsync(seed);
+        _mercadoPago.SetStatus(created.ProviderOrderId!, "expired");
+        var simulator = new ConcurrentWriteSimulator(
+            async () =>
+            {
+                await using var other = InMemoryDbContextHelper.Create(databaseName);
+                (await other.Payments.SingleAsync(p => p.Id == created.Id)).Fail("Mercado Pago order expired");
+                await other.SaveChangesAsync();
+            },
+            () => new DbUpdateConcurrencyException("The payment was changed by another request."));
+        await using var db = InMemoryDbContextHelper.Create(databaseName, simulator);
+
+        var outcome = await NotificationHandler(db).ExecuteAsync(Notification(created.ProviderOrderId, "order.expired"));
+
+        outcome.Should().Be(NotificationOutcome.Synchronized);
+        _history.For(created.Id).Select(e => e.Event).Should().Equal("created");
+    }
+
+    [Fact]
+    public async Task Create_ProviderLocksTheKeyWhileAnotherRequestRuns_RetriesAndGetsTheSameOrder()
+    {
+        await using var db = InMemoryDbContextHelper.Create();
+        var budget = await SeedApprovedBudgetAsync(db);
+        _mercadoPago.LockNextCreates = 2;
+
+        var result = await CreateHandler(db).ExecuteAsync(new CreatePaymentCommand(budget.Id, BudgetFixtures.StaffRequester));
+
+        result.Created.Should().BeTrue();
+        result.Payment.ProviderOrderId.Should().StartWith("ORD");
+        _mercadoPago.CreateCalls.Should().HaveCount(3).And.OnlyContain(c => c.IdempotencyKey == budget.Id.ToString());
+    }
+
+    [Fact]
+    public async Task Create_ProviderKeepsTheKeyLocked_ThrowsConflictAndStoresNothing()
+    {
+        await using var db = InMemoryDbContextHelper.Create();
+        var budget = await SeedApprovedBudgetAsync(db);
+        _mercadoPago.LockNextCreates = 10;
+
+        var act = () => CreateHandler(db).ExecuteAsync(new CreatePaymentCommand(budget.Id, BudgetFixtures.StaffRequester));
+
+        await act.Should().ThrowAsync<ConflictException>().WithMessage("*already being created*");
+        _mercadoPago.CreateCalls.Should().HaveCount(3);
+        (await db.Payments.AnyAsync()).Should().BeFalse();
     }
 }

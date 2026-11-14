@@ -21,6 +21,9 @@ public sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         builder.ToTable("payments");
 
         builder.HasKey(p => p.Id);
+
+        builder.Property<uint>("Version").IsRowVersion();
+
         builder.Property(p => p.Id)
             .HasColumnName("id")
             .ValueGeneratedNever();

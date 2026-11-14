@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -86,6 +87,10 @@ public sealed class MercadoPagoClient(HttpClient http, MercadoPagoOptions option
 
         using (response)
         {
+            if (response.StatusCode == HttpStatusCode.Locked)
+                throw new ProviderRequestInProgressException(
+                    $"Mercado Pago {operation} is already in progress for this idempotency key.");
+
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync(cancellationToken);

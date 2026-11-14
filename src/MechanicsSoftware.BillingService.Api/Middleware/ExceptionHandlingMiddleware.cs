@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using MechanicsSoftware.BillingService.Application.Exceptions;
 using MechanicsSoftware.BillingService.Domain.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace MechanicsSoftware.BillingService.Api.Middleware;
 
@@ -30,6 +31,8 @@ public sealed partial class ExceptionHandlingMiddleware(
             PaymentProviderException provider => (StatusCodes.Status502BadGateway, LogProviderFailure(provider)),
             ForbiddenException forbidden => (StatusCodes.Status403Forbidden, forbidden.Message),
             ConflictException conflict => (StatusCodes.Status409Conflict, conflict.Message),
+            DbUpdateConcurrencyException => (StatusCodes.Status409Conflict,
+                "The resource was changed by another request. Reload it and try again."),
             DomainException domain => (StatusCodes.Status422UnprocessableEntity, domain.Message),
             _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.")
         };

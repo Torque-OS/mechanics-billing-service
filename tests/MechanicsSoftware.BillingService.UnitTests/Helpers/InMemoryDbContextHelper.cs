@@ -31,3 +31,19 @@ public sealed class SaveChangesCounter : SaveChangesInterceptor
         return base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 }
+
+public sealed class ConcurrentWriteSimulator(Func<Task> otherRequestWins, Func<Exception> failure) : SaveChangesInterceptor
+{
+    private bool _armed = true;
+
+    public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+        DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+    {
+        if (!_armed)
+            return await base.SavingChangesAsync(eventData, result, cancellationToken);
+
+        _armed = false;
+        await otherRequestWins();
+        throw failure();
+    }
+}
