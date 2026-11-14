@@ -9,8 +9,8 @@ Per [ADR-010](https://github.com/Torque-OS/mechanics-software/blob/main/docs/dec
 - Generate and send budgets for a service order (using an item snapshot received from the OS Service).
 - Record the customer's approval/rejection.
 - Create and confirm payments via **Mercado Pago**, including webhooks.
-- Publish `BudgetGenerated`, `BudgetApproved`, `BudgetRejected`, `BudgetCancelled`, `PaymentConfirmed`, `PaymentFailed` events and react to `RequestBudget`, `RequestPayment`, `CancelBudget` commands from the OS Service's Saga orchestrator ([ADR-011](https://github.com/Torque-OS/mechanics-software/blob/main/docs/decisions/ADR-011-saga-orquestrada-e-mensageria.md)).
-  `CancelBudget` also refunds a received payment — there is no separate `RefundPayment` (see [Cancellation and refund](#cancellation-and-refund-saga-compensation)).
+- Publish `BudgetGenerated`, `BudgetFailed`, `BudgetApproved`, `BudgetRejected`, `BudgetCancelled`, `PaymentConfirmed`, `PaymentFailed` events and react to the `RequestBudget` and `CancelBudget` commands from the OS Service's Saga orchestrator ([ADR-011](https://github.com/Torque-OS/mechanics-software/blob/main/docs/decisions/ADR-011-saga-orquestrada-e-mensageria.md)).
+  The payment is started by the customer (`POST /api/payments`), so there is no `RequestPayment` command, and `CancelBudget` also refunds a received payment — there is no separate `RefundPayment` (see [Cancellation and refund](#cancellation-and-refund-saga-compensation)).
 
 This repo owns its own data — **no other service may query this database directly**
 ([ADR-012](https://github.com/Torque-OS/mechanics-software/blob/main/docs/decisions/ADR-012-banco-por-servico.md)): PostgreSQL for budgets/payments, MongoDB for raw Mercado Pago event/webhook payloads.
@@ -21,8 +21,11 @@ This repo owns its own data — **no other service may query this database direc
 - **Payments with Mercado Pago (F4-15): done.** Dynamic QR via the Orders API, signed webhook, verification
   against Mercado Pago, raw notifications in MongoDB.
 - **Saga events published (F4-16): done.** MassTransit v8 + RabbitMQ with a transactional outbox — see
-  [Saga messages](#saga-messages). Payment history in MongoDB (`payment_events`). Consuming them in the OS Service
-  is F4-13; until then budgets are generated over HTTP and the OS is not updated automatically.
+  [Saga messages](#saga-messages). Payment history in MongoDB (`payment_events`). The OS Service consumes them (F4-12).
+- **Budget requested by the Saga: done.** `RequestBudget` consumer — the OS Service sends the service order snapshot
+  and the budget is generated without calling the API by hand.
+- **Messaging reliability (F4-24): done.** Every consumer uses the inbox (deduplication by `MessageId`), the outbox and
+  the same retry policy with exponential backoff — see [Saga messages](#saga-messages).
 - **Cancellation and refund compensation (F4-17): done.** `CancelBudget` consumer (inbox + outbox) and staff
   endpoint: an open QR is cancelled, a received payment is refunded on Mercado Pago — see
   [Cancellation and refund](#cancellation-and-refund-saga-compensation).
@@ -104,6 +107,8 @@ Mercado Pago → POST /api/payments/webhooks/mercadopago (topic "Order")
 - **The webhook body is never trusted**: the outcome always comes from `GET /v1/orders/{id}`. Repeated or
   out-of-order notifications are harmless — a payment changes status (and publishes an event) only once.
 - `POST /api/payments/{id}/verify` does the same check on demand, for when a webhook does not arrive.
+- `GET /api/payments?budgetId={id}` (staff) returns the payment of a budget (`404` while there is none). The OS
+  Service uses it to show the billing of a service order (F4-25).
 - `qr.png` is public on purpose (like the OS status link): the id is an unguessable GUID and the image only
   lets someone pay this charge.
 - One payment per budget, for the approved total. An expired QR fails the payment (and, through the Saga,
@@ -170,17 +175,20 @@ delivered after it commits — a crash never loses an event, and a rolled-back c
 | `PaymentFailed` | `ServiceOrderId`, `PaymentId`, `BudgetId`, `Reason`, `OccurredAt` | order `expired` / `canceled` / `failed` |
 | `BudgetCancelled` | `ServiceOrderId`, `BudgetId`, `OccurredAt` | answer to `CancelBudget` (payment cancelled/refunded first); again on repeats |
 
-It **consumes** one command:
+It **consumes** two commands:
 
 | Command (`TorqueOS.Contracts.Billing`) | Fields | Queue | Answer |
 |---|---|---|---|
+| `RequestBudget` | `ServiceOrderId`, `CustomerId`, `Items[]` (`Type` = `Service`/`Part`, `ReferenceId`, `Description`, `UnitPriceInCents`, `Quantity`) | `billing.request-budget` | `BudgetGenerated`, or `BudgetFailed` for an invalid snapshot; nothing when the budget already exists |
 | `CancelBudget` | `ServiceOrderId` | `billing.cancel-budget` | `BudgetCancelled` |
 
-- Send it to `queue:billing.cancel-budget`, or publish it (the queue is bound to the `TorqueOS.Contracts.Billing:CancelBudget`
-  exchange). The EF Core **inbox** drops redeliveries of the same `MessageId`.
-- Mercado Pago or database failures are retried (1 s, 5 s, 15 s); business conflicts (e.g. budget `REJECTED`) and unknown
-  service orders are not. A message that still fails goes to `billing.cancel-budget_error`; move it back with the
-  RabbitMQ shovel/"Move messages" once the cause is fixed.
+- Send them to their queue, or publish them (each queue is bound to the `TorqueOS.Contracts.Billing:<Name>` exchange).
+  The EF Core **inbox** drops redeliveries of the same `MessageId`.
+- **Retry (F4-24), the same for every consumer** (`SagaRetryPolicy`): transient failures (database, broker, Mercado Pago)
+  are retried 5 times with exponential backoff, about 16 s in total. Business rule violations (e.g. budget `REJECTED`)
+  and unknown service orders are permanent and are not retried. A message that still fails goes to the queue's
+  `_error` queue (e.g. `billing.cancel-budget_error`); move it back with the RabbitMQ shovel/"Move messages" once the
+  cause is fixed.
 - Local test without the OS Service — RabbitMQ UI → *Exchanges* → `TorqueOS.Contracts.Billing:CancelBudget` → *Publish
   message*, property `content_type` = `application/vnd.masstransit+json`, payload:
 
@@ -189,7 +197,7 @@ It **consumes** one command:
     "message": { "serviceOrderId": "<guid>" } }
   ```
 
-**For consumers (OS Service, F4-13):**
+**For consumers and senders (OS Service, F4-12):**
 
 - Declare **records with exactly this namespace, name and fields** — MassTransit identifies a message by
   `urn:message:TorqueOS.Contracts.Billing:<Name>` (pinned by `SagaContractTests`). Copy them from
