@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<PaymentSynchronizer>();
         services.AddScoped<CreatePaymentHandler>();
         services.AddScoped<GetPaymentHandler>();
+        services.AddScoped<GetPaymentByBudgetHandler>();
         services.AddScoped<VerifyPaymentHandler>();
         services.AddScoped<HandleMercadoPagoNotificationHandler>();
 

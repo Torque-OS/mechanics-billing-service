@@ -19,6 +19,7 @@ namespace MechanicsSoftware.BillingService.Api.Controllers;
 public partial class PaymentsController(
     CreatePaymentHandler createHandler,
     GetPaymentHandler getHandler,
+    GetPaymentByBudgetHandler getByBudgetHandler,
     VerifyPaymentHandler verifyHandler,
     HandleMercadoPagoNotificationHandler notificationHandler,
     ILogger<PaymentsController> logger) : ControllerBase
@@ -48,6 +49,19 @@ public partial class PaymentsController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken) =>
         Ok(await getHandler.ExecuteAsync(id, cancellationToken));
+
+    [HttpGet]
+    [Authorize(Policy = Policies.Staff)]
+    [ProducesResponseType<PaymentResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetByBudget([FromQuery] Guid budgetId, CancellationToken cancellationToken)
+    {
+        if (budgetId == Guid.Empty)
+            return BadRequest(new { error = "Query parameter 'budgetId' is required." });
+
+        return Ok(await getByBudgetHandler.ExecuteAsync(budgetId, cancellationToken));
+    }
 
     [HttpPost("{id:guid}/verify")]
     [Authorize(Policy = Policies.Staff)]
