@@ -1,8 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using MassTransit;
-using MechanicsSoftware.BillingService.Application.Exceptions;
 using MechanicsSoftware.BillingService.Application.UseCases.Budgets.Handlers;
-using MechanicsSoftware.BillingService.Domain.Exceptions;
 using MechanicsSoftware.BillingService.Infrastructure.Persistence;
 using TorqueOS.Contracts.Billing;
 
@@ -26,13 +24,7 @@ public sealed class CancelBudgetConsumerDefinition : ConsumerDefinition<CancelBu
         IConsumerConfigurator<CancelBudgetConsumer> consumerConfigurator,
         IRegistrationContext context)
     {
-        endpointConfigurator.UseMessageRetry(retry =>
-        {
-            retry.Intervals(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15));
-            retry.Ignore<DomainException>();
-            retry.Ignore<NotFoundException>();
-        });
-
+        endpointConfigurator.UseMessageRetry(SagaRetryPolicy.Configure);
         endpointConfigurator.UseEntityFrameworkOutbox<BillingDbContext>(context);
     }
 }
