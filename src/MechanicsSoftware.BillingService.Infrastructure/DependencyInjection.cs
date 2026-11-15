@@ -44,6 +44,7 @@ public static class DependencyInjection
 
         services.AddMassTransit(bus =>
         {
+            bus.AddConsumer<RequestBudgetConsumer, RequestBudgetConsumerDefinition>();
             bus.AddConsumer<CancelBudgetConsumer, CancelBudgetConsumerDefinition>();
 
             bus.AddEntityFrameworkOutbox<BillingDbContext>(outbox =>

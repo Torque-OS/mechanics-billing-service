@@ -167,6 +167,48 @@ public class PaymentsEndpointTests(BillingApiFactory factory) : IClassFixture<Bi
     }
 
     [Fact]
+    public async Task GetByBudget_AsStaff_ReturnsThePaymentOfTheBudget()
+    {
+        var payment = await PaymentAsync();
+
+        var response = await ClientAs(TestTokens.Staff()).GetAsync($"/api/payments?budgetId={payment.BudgetId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = (await response.Content.ReadFromJsonAsync<PaymentResponse>())!;
+        body.Id.Should().Be(payment.Id);
+        body.QrData.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task GetByBudget_BudgetWithoutPayment_Returns404()
+    {
+        var budget = await BudgetAsync(Guid.NewGuid());
+
+        var response = await ClientAs(TestTokens.Staff()).GetAsync($"/api/payments?budgetId={budget.Id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetByBudget_WithoutBudgetId_Returns400()
+    {
+        var response = await ClientAs(TestTokens.Staff()).GetAsync("/api/payments");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task GetByBudget_AsCustomer_Returns403()
+    {
+        var customerId = Guid.NewGuid();
+        var payment = await PaymentAsync(customerId);
+
+        var response = await ClientAs(TestTokens.Customer(customerId)).GetAsync($"/api/payments?budgetId={payment.BudgetId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task QrPng_WithoutToken_ReturnsPngImage()
     {
         var payment = await PaymentAsync();

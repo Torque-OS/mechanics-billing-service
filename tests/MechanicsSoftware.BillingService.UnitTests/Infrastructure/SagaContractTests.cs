@@ -32,6 +32,7 @@ public sealed class SagaContractTests : IAsyncLifetime
     [InlineData(typeof(PaymentFailed), "urn:message:TorqueOS.Contracts.Billing:PaymentFailed")]
     [InlineData(typeof(BudgetCancelled), "urn:message:TorqueOS.Contracts.Billing:BudgetCancelled")]
     [InlineData(typeof(CancelBudget), "urn:message:TorqueOS.Contracts.Billing:CancelBudget")]
+    [InlineData(typeof(RequestBudget), "urn:message:TorqueOS.Contracts.Billing:RequestBudget")]
     public void MessageIdentity_IsStable(Type contract, string expectedUrn)
     {
         MessageUrn.ForType(contract).ToString().Should().Be(expectedUrn);
