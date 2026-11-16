@@ -29,8 +29,9 @@ This repo owns its own data — **no other service may query this database direc
 - **Cancellation and refund compensation (F4-17): done.** `CancelBudget` consumer (inbox + outbox) and staff
   endpoint: an open QR is cancelled, a received payment is refunded on Mercado Pago — see
   [Cancellation and refund](#cancellation-and-refund-saga-compensation).
-- **API Gateway route and deploy (F4-33): not started.**
-  Until the gateway route exists, Mercado Pago webhooks only reach a local stack through a tunnel (see below).
+- **API Gateway route (F4-13): done.** The Service is a `NodePort` (30081) and the API Gateway in
+  `mechanics-infra-k8s` routes `/api/budgets` and `/api/payments` here — see [Through the API Gateway](#through-the-api-gateway).
+- **Deploy (F4-33):** `deploy.yml` — see [CI/CD](#cicd).
 - **Distributed tracing (F4-36): done.** See [Observability](#observability).
 
 See the [Fase 4 board](https://github.com/orgs/Torque-OS/projects/4).
@@ -93,6 +94,21 @@ event: the OS Service moves the order to `AWAITING_APPROVAL` and e-mails the cus
 > `POST /api/budgets` — `serviceOrderId`, **`customerId`** and the items. `customerId` is required: it is how
 > the Billing Service checks that a customer only decides their own budget (there is no access to the OS
 > database, ADR-012). Without it, generation fails with `BudgetFailed` and the Saga cancels the order.
+
+## Through the API Gateway
+
+In the cluster, clients reach this service through the platform's single entry point (`mechanics-infra-k8s`):
+
+- `/api/budgets` and `/api/payments` (and everything below them) are routed to the `NodePort` 30081 Service; every
+  other path still goes to `mechanics-software`.
+- Those routes pass the gateway's Lambda authorizer first, so a missing or invalid token is rejected with `401` before
+  reaching the service. The role checks above still happen here.
+- Two routes are public in the gateway, because their callers have no platform token:
+  `POST /api/payments/webhooks/mercadopago` (protected by `x-signature`) and `GET /api/payments/{id}/qr.png`.
+- After a deploy, set the Mercado Pago webhook URL to `<gateway-url>/api/payments/webhooks/mercadopago`; locally the
+  webhook still needs a tunnel (see the sandbox setup below).
+- In-cluster callers (the OS Service's `BILLING_API_URL`) keep using
+  `http://mechanics-billing-api.mechanics-billing.svc.cluster.local:8080`, which a `NodePort` Service still serves.
 
 ## Payments (Mercado Pago)
 
