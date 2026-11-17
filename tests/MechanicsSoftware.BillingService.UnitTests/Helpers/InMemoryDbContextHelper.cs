@@ -18,7 +18,6 @@ public static class InMemoryDbContextHelper
     }
 }
 
-/// <summary>Counts SaveChanges calls — with the outbox, a published event only leaves if SaveChanges runs.</summary>
 public sealed class SaveChangesCounter : SaveChangesInterceptor
 {
     public int Count { get; private set; }
@@ -30,5 +29,21 @@ public sealed class SaveChangesCounter : SaveChangesInterceptor
     {
         Count++;
         return base.SavingChangesAsync(eventData, result, cancellationToken);
+    }
+}
+
+public sealed class ConcurrentWriteSimulator(Func<Task> otherRequestWins, Func<Exception> failure) : SaveChangesInterceptor
+{
+    private bool _armed = true;
+
+    public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+        DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+    {
+        if (!_armed)
+            return await base.SavingChangesAsync(eventData, result, cancellationToken);
+
+        _armed = false;
+        await otherRequestWins();
+        throw failure();
     }
 }

@@ -10,7 +10,6 @@ services:
       ConnectionStrings__Mongo: mongodb://mongo:27017
       JWT_SECRET: dev-secret-change-in-production-min-32-chars!!
       RABBITMQ_CONNECTION_STRING: amqp://guest:guest@rabbitmq:5672/
-      # Mercado Pago sandbox: values come from .env (gitignored) — see env.example
       MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
       MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
       MERCADOPAGO_EXTERNAL_POS_ID: ${MERCADOPAGO_EXTERNAL_POS_ID:-}
@@ -22,7 +21,6 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # Saga broker (ADR-011) for local development; management UI at http://localhost:15672 (guest/guest).
   rabbitmq:
     image: rabbitmq:3.13-management
     ports:

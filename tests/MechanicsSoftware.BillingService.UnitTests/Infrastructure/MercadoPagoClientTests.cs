@@ -188,4 +188,15 @@ public class MercadoPagoClientTests
 
         await act.Should().ThrowAsync<PaymentProviderException>().WithMessage("*refund order ORD01ABC*409*order_not_refundable*");
     }
+
+    [Fact]
+    public async Task Locked_ThrowsInProgressException()
+    {
+        var client = new MercadoPagoClient(new HttpClient(new StubHandler((HttpStatusCode)423,
+            """{"errors":[{"code":"resource_locked","message":"Idempotency key locked. Please retry after some time."}]}""")), Options());
+
+        var act = () => client.CreateQrOrderAsync(Request, "budget-key");
+
+        await act.Should().ThrowAsync<ProviderRequestInProgressException>().WithMessage("*already in progress*");
+    }
 }

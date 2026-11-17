@@ -15,7 +15,6 @@ internal static class PaymentQueryExtensions
         this IQueryable<Payment> query, Guid budgetId, CancellationToken cancellationToken = default) =>
         query.FirstOrDefaultAsync(p => p.BudgetId == budgetId, cancellationToken);
 
-    /// <summary>Provider ids are stored upper-case (see <see cref="NormalizeProviderId"/>).</summary>
     internal static Task<Payment?> FindByProviderOrderAsync(
         this IQueryable<Payment> query, string providerOrderId, CancellationToken cancellationToken = default)
     {

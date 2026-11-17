@@ -2,9 +2,6 @@ using MechanicsSoftware.BillingService.Domain.Exceptions;
 
 namespace MechanicsSoftware.BillingService.Domain.ValueObjects;
 
-/// <summary>
-/// Pending → Approved | Rejected | Cancelled; Approved → Cancelled (Saga compensation). Rejected and Cancelled are final.
-/// </summary>
 public sealed class BudgetStatus(BudgetStatus.Status value) : ValueObject
 {
     public enum Status

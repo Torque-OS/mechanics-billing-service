@@ -2,11 +2,6 @@ using Microsoft.Extensions.Configuration;
 
 namespace MechanicsSoftware.BillingService.Infrastructure.MercadoPago;
 
-/// <summary>
-/// Mercado Pago settings, read from environment variables only (never from versioned appsettings):
-/// <c>MERCADOPAGO_ACCESS_TOKEN</c>, <c>MERCADOPAGO_WEBHOOK_SECRET</c>, <c>MERCADOPAGO_EXTERNAL_POS_ID</c>.
-/// Missing values do not stop the service: the client fails per request and the webhook rejects everything.
-/// </summary>
 public sealed record MercadoPagoOptions(
     string? AccessToken,
     string? WebhookSecret,
@@ -16,7 +11,6 @@ public sealed record MercadoPagoOptions(
 {
     public static readonly Uri DefaultBaseAddress = new("https://api.mercadopago.com/");
 
-    /// <summary>Mercado Pago's own default validity for QR orders.</summary>
     public const string DefaultExpirationTime = "PT15M";
 
     public static MercadoPagoOptions FromConfiguration(IConfiguration configuration) =>

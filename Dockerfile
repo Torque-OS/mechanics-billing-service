@@ -1,8 +1,6 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /app
 
-# Directory.Build.props enables ImplicitUsings/Nullable for every project; without it the
-# Domain/Application/Infrastructure projects do not compile.
 COPY MechanicsSoftware.BillingService.sln Directory.Build.props ./
 COPY src/MechanicsSoftware.BillingService.Domain/MechanicsSoftware.BillingService.Domain.csproj src/MechanicsSoftware.BillingService.Domain/
 COPY src/MechanicsSoftware.BillingService.Application/MechanicsSoftware.BillingService.Application.csproj src/MechanicsSoftware.BillingService.Application/

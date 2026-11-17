@@ -21,6 +21,9 @@ public sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         builder.ToTable("payments");
 
         builder.HasKey(p => p.Id);
+
+        builder.Property<uint>("Version").IsRowVersion();
+
         builder.Property(p => p.Id)
             .HasColumnName("id")
             .ValueGeneratedNever();
@@ -29,7 +32,6 @@ public sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
             .HasColumnName("budget_id")
             .IsRequired();
 
-        // One payment per budget (creation is idempotent per budget).
         builder.HasIndex(p => p.BudgetId)
             .IsUnique()
             .HasDatabaseName("ux_payments_budget_id");

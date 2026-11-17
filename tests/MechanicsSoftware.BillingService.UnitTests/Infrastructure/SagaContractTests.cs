@@ -9,10 +9,6 @@ using TorqueOS.Contracts.Billing;
 
 namespace MechanicsSoftware.BillingService.UnitTests.Infrastructure;
 
-/// <summary>
-/// Publishes through MassTransit's in-memory test harness. These tests pin the cross-service contract:
-/// the OS Service (F4-13) consumes these exact message identities and fields.
-/// </summary>
 public sealed class SagaContractTests : IAsyncLifetime
 {
     private ServiceProvider _provider = null!;
@@ -36,6 +32,7 @@ public sealed class SagaContractTests : IAsyncLifetime
     [InlineData(typeof(PaymentFailed), "urn:message:TorqueOS.Contracts.Billing:PaymentFailed")]
     [InlineData(typeof(BudgetCancelled), "urn:message:TorqueOS.Contracts.Billing:BudgetCancelled")]
     [InlineData(typeof(CancelBudget), "urn:message:TorqueOS.Contracts.Billing:CancelBudget")]
+    [InlineData(typeof(RequestBudget), "urn:message:TorqueOS.Contracts.Billing:RequestBudget")]
     public void MessageIdentity_IsStable(Type contract, string expectedUrn)
     {
         MessageUrn.ForType(contract).ToString().Should().Be(expectedUrn);

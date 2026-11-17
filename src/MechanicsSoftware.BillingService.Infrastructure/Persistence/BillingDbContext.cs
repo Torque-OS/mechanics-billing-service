@@ -13,12 +13,12 @@ public sealed class BillingDbContext : DbContext, IBillingDbContext
     public DbSet<Budget> Budgets { get; set; } = null!;
     public DbSet<Payment> Payments { get; set; } = null!;
 
+    public void DiscardChanges() => ChangeTracker.Clear();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
 
-        // MassTransit transactional outbox (ADR-011): Saga events are stored in the same transaction as the
-        // state change and delivered to RabbitMQ after commit.
         modelBuilder.AddInboxStateEntity();
         modelBuilder.AddOutboxMessageEntity();
         modelBuilder.AddOutboxStateEntity();

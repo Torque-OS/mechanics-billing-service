@@ -9,8 +9,8 @@ Per [ADR-010](https://github.com/Torque-OS/mechanics-software/blob/main/docs/dec
 - Generate and send budgets for a service order (using an item snapshot received from the OS Service).
 - Record the customer's approval/rejection.
 - Create and confirm payments via **Mercado Pago**, including webhooks.
-- Publish `BudgetGenerated`, `BudgetApproved`, `BudgetRejected`, `BudgetCancelled`, `PaymentConfirmed`, `PaymentFailed` events and react to `RequestBudget`, `RequestPayment`, `CancelBudget` commands from the OS Service's Saga orchestrator ([ADR-011](https://github.com/Torque-OS/mechanics-software/blob/main/docs/decisions/ADR-011-saga-orquestrada-e-mensageria.md)).
-  `CancelBudget` also refunds a received payment — there is no separate `RefundPayment` (see [Cancellation and refund](#cancellation-and-refund-saga-compensation)).
+- Publish `BudgetGenerated`, `BudgetFailed`, `BudgetApproved`, `BudgetRejected`, `BudgetCancelled`, `PaymentConfirmed`, `PaymentFailed` events and react to the `RequestBudget` and `CancelBudget` commands from the OS Service's Saga orchestrator ([ADR-011](https://github.com/Torque-OS/mechanics-software/blob/main/docs/decisions/ADR-011-saga-orquestrada-e-mensageria.md)).
+  The payment is started by the customer (`POST /api/payments`), so there is no `RequestPayment` command, and `CancelBudget` also refunds a received payment — there is no separate `RefundPayment` (see [Cancellation and refund](#cancellation-and-refund-saga-compensation)).
 
 This repo owns its own data — **no other service may query this database directly**
 ([ADR-012](https://github.com/Torque-OS/mechanics-software/blob/main/docs/decisions/ADR-012-banco-por-servico.md)): PostgreSQL for budgets/payments, MongoDB for raw Mercado Pago event/webhook payloads.
@@ -21,13 +21,18 @@ This repo owns its own data — **no other service may query this database direc
 - **Payments with Mercado Pago (F4-15): done.** Dynamic QR via the Orders API, signed webhook, verification
   against Mercado Pago, raw notifications in MongoDB.
 - **Saga events published (F4-16): done.** MassTransit v8 + RabbitMQ with a transactional outbox — see
-  [Saga messages](#saga-messages). Payment history in MongoDB (`payment_events`). Consuming them in the OS Service
-  is F4-13; until then budgets are generated over HTTP and the OS is not updated automatically.
+  [Saga messages](#saga-messages). Payment history in MongoDB (`payment_events`). The OS Service consumes them (F4-12).
+- **Budget requested by the Saga: done.** `RequestBudget` consumer — the OS Service sends the service order snapshot
+  and the budget is generated without calling the API by hand.
+- **Messaging reliability (F4-24): done.** Every consumer uses the inbox (deduplication by `MessageId`), the outbox and
+  the same retry policy with exponential backoff — see [Saga messages](#saga-messages).
 - **Cancellation and refund compensation (F4-17): done.** `CancelBudget` consumer (inbox + outbox) and staff
   endpoint: an open QR is cancelled, a received payment is refunded on Mercado Pago — see
   [Cancellation and refund](#cancellation-and-refund-saga-compensation).
-- **API Gateway route and deploy (F4-33): not started.**
-  Until the gateway route exists, Mercado Pago webhooks only reach a local stack through a tunnel (see below).
+- **API Gateway route (F4-13): done.** The Service is a `NodePort` (30081) and the API Gateway in
+  `mechanics-infra-k8s` routes `/api/budgets` and `/api/payments` here — see [Through the API Gateway](#through-the-api-gateway).
+- **Deploy (F4-33):** `deploy.yml` — see [CI/CD](#cicd).
+- **Distributed tracing (F4-36): done.** See [Observability](#observability).
 
 See the [Fase 4 board](https://github.com/orgs/Torque-OS/projects/4).
 
@@ -59,9 +64,9 @@ Errors use `{ "error": "..." }`.
 | `POST` | `/api/budgets` | Staff | `201` new budget · `200` existing one for the same service order (idempotent) · `422` invalid snapshot (`BudgetFailed`) |
 | `GET` | `/api/budgets/{id}` | Staff | `200` · `404` |
 | `GET` | `/api/budgets?serviceOrderId={id}` | Staff | `200` · `404` · `400` without the parameter |
-| `POST` | `/api/budgets/{id}/decision` | Customer (own budget) or staff | `200` · `403` another customer's budget · `404` · `409` already decided |
+| `POST` | `/api/budgets/{id}/decision` | Customer (own budget) or staff | `200` · `403` another customer's budget · `404` · `409` already decided or decided concurrently |
 | `POST` | `/api/budgets/{id}/cancel` | Staff | `200` cancelled (QR cancelled / payment refunded) · `404` · `409` budget rejected · `502` Mercado Pago failure — repeat to retry |
-| `POST` | `/api/payments` | Customer (own budget) or staff | `201` new payment with `qrData` · `200` existing one for the budget · `409` budget not approved · `502` Mercado Pago failure |
+| `POST` | `/api/payments` | Customer (own budget) or staff | `201` new payment with `qrData` · `200` existing one for the budget (also for a concurrent request) · `409` budget not approved, or another request still creating it · `502` Mercado Pago failure |
 | `GET` | `/api/payments/{id}` | Staff | `200` · `404` |
 | `POST` | `/api/payments/{id}/verify` | Staff | `200` after re-reading the order from Mercado Pago · `502` |
 | `GET` | `/api/payments/{id}/qr.png` | **Public** | `200` QR image to scan · `409` payment no longer pending |
@@ -90,6 +95,21 @@ event: the OS Service moves the order to `AWAITING_APPROVAL` and e-mails the cus
 > the Billing Service checks that a customer only decides their own budget (there is no access to the OS
 > database, ADR-012). Without it, generation fails with `BudgetFailed` and the Saga cancels the order.
 
+## Through the API Gateway
+
+In the cluster, clients reach this service through the platform's single entry point (`mechanics-infra-k8s`):
+
+- `/api/budgets` and `/api/payments` (and everything below them) are routed to the `NodePort` 30081 Service; every
+  other path still goes to `mechanics-software`.
+- Those routes pass the gateway's Lambda authorizer first, so a missing or invalid token is rejected with `401` before
+  reaching the service. The role checks above still happen here.
+- Two routes are public in the gateway, because their callers have no platform token:
+  `POST /api/payments/webhooks/mercadopago` (protected by `x-signature`) and `GET /api/payments/{id}/qr.png`.
+- After a deploy, set the Mercado Pago webhook URL to `<gateway-url>/api/payments/webhooks/mercadopago`; locally the
+  webhook still needs a tunnel (see the sandbox setup below).
+- In-cluster callers (the OS Service's `BILLING_API_URL`) keep using
+  `http://mechanics-billing-api.mechanics-billing.svc.cluster.local:8080`, which a `NodePort` Service still serves.
+
 ## Payments (Mercado Pago)
 
 ```
@@ -104,10 +124,20 @@ Mercado Pago → POST /api/payments/webhooks/mercadopago (topic "Order")
 - **The webhook body is never trusted**: the outcome always comes from `GET /v1/orders/{id}`. Repeated or
   out-of-order notifications are harmless — a payment changes status (and publishes an event) only once.
 - `POST /api/payments/{id}/verify` does the same check on demand, for when a webhook does not arrive.
+- `GET /api/payments?budgetId={id}` (staff) returns the payment of a budget (`404` while there is none). The OS
+  Service uses it to show the billing of a service order (F4-25).
 - `qr.png` is public on purpose (like the OS status link): the id is an unguessable GUID and the image only
   lets someone pay this charge.
 - One payment per budget, for the approved total. An expired QR fails the payment (and, through the Saga,
   the order).
+- **Concurrent requests are safe.** The Mercado Pago order uses the budget id as `X-Idempotency-Key` and
+  `external_reference`, so two simultaneous `POST /api/payments` produce one order and one QR: Mercado Pago answers the
+  second call with `423 resource_locked` while the first is running, the service retries (0.5 s, 1 s, 2 s) and gets the
+  same order back, and the slower request returns the stored payment with `200` (`409` if it is still locked).
+- `payments` and `budgets` use optimistic concurrency on PostgreSQL's `xmin`. When a repeated webhook and
+  `/verify` confirm the same payment at the same time, the second write is rejected and its event is dropped with it
+  (same outbox transaction), so `PaymentConfirmed`/`PaymentFailed` leave once. Concurrent budget decisions or
+  cancellations over HTTP answer `409`; the `CancelBudget` consumer retries.
 - A refund reported by Mercado Pago (`refunded`, e.g. made in the panel) moves a `CONFIRMED` payment to `REFUNDED`
   without a Saga event; if the payment was still `PENDING`, it fails (`PaymentFailed`) — the money was not kept.
 
@@ -170,17 +200,20 @@ delivered after it commits — a crash never loses an event, and a rolled-back c
 | `PaymentFailed` | `ServiceOrderId`, `PaymentId`, `BudgetId`, `Reason`, `OccurredAt` | order `expired` / `canceled` / `failed` |
 | `BudgetCancelled` | `ServiceOrderId`, `BudgetId`, `OccurredAt` | answer to `CancelBudget` (payment cancelled/refunded first); again on repeats |
 
-It **consumes** one command:
+It **consumes** two commands:
 
 | Command (`TorqueOS.Contracts.Billing`) | Fields | Queue | Answer |
 |---|---|---|---|
+| `RequestBudget` | `ServiceOrderId`, `CustomerId`, `Items[]` (`Type` = `Service`/`Part`, `ReferenceId`, `Description`, `UnitPriceInCents`, `Quantity`) | `billing.request-budget` | `BudgetGenerated`, or `BudgetFailed` for an invalid snapshot; nothing when the budget already exists |
 | `CancelBudget` | `ServiceOrderId` | `billing.cancel-budget` | `BudgetCancelled` |
 
-- Send it to `queue:billing.cancel-budget`, or publish it (the queue is bound to the `TorqueOS.Contracts.Billing:CancelBudget`
-  exchange). The EF Core **inbox** drops redeliveries of the same `MessageId`.
-- Mercado Pago or database failures are retried (1 s, 5 s, 15 s); business conflicts (e.g. budget `REJECTED`) and unknown
-  service orders are not. A message that still fails goes to `billing.cancel-budget_error`; move it back with the
-  RabbitMQ shovel/"Move messages" once the cause is fixed.
+- Send them to their queue, or publish them (each queue is bound to the `TorqueOS.Contracts.Billing:<Name>` exchange).
+  The EF Core **inbox** drops redeliveries of the same `MessageId`.
+- **Retry (F4-24), the same for every consumer** (`SagaRetryPolicy`): transient failures (database, broker, Mercado Pago)
+  are retried 5 times with exponential backoff, about 16 s in total. Business rule violations (e.g. budget `REJECTED`)
+  and unknown service orders are permanent and are not retried. A message that still fails goes to the queue's
+  `_error` queue (e.g. `billing.cancel-budget_error`); move it back with the RabbitMQ shovel/"Move messages" once the
+  cause is fixed.
 - Local test without the OS Service — RabbitMQ UI → *Exchanges* → `TorqueOS.Contracts.Billing:CancelBudget` → *Publish
   message*, property `content_type` = `application/vnd.masstransit+json`, payload:
 
@@ -189,7 +222,7 @@ It **consumes** one command:
     "message": { "serviceOrderId": "<guid>" } }
   ```
 
-**For consumers (OS Service, F4-13):**
+**For consumers and senders (OS Service, F4-12):**
 
 - Declare **records with exactly this namespace, name and fields** — MassTransit identifies a message by
   `urn:message:TorqueOS.Contracts.Billing:<Name>` (pinned by `SagaContractTests`). Copy them from
@@ -205,6 +238,21 @@ It **consumes** one command:
 Mercado Pago refusal during a cancellation (`cancel_failed`, `refund_failed`, with the error in `reason`) is appended to MongoDB
 `payment_events` with the Mercado Pago order as read at that moment (`providerSnapshot`). Raw webhook bodies stay in
 `mercadopago_notifications`.
+
+## Observability
+
+OpenTelemetry traces every inbound HTTP request and every MassTransit publish/consume (ADR-011, F4-36), so a
+`ServiceOrderId`'s trace continues from the OS Service's saga orchestrator into this service's budget/payment
+consumers — the message headers already carry W3C trace context automatically, courtesy of MassTransit's own
+`ActivitySource`. Nothing is exported unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set (empty/unset in local `docker
+compose` by default — point it at a local collector such as Jaeger or the cluster's Datadog Agent to see spans); the
+exporter is otherwise left out of the pipeline entirely.
+
+- **Do not set `options.Endpoint` on the OTLP exporter in code.** The exporter only appends the per-signal path
+  (`/v1/traces`) when it reads `OTEL_EXPORTER_OTLP_ENDPOINT`/`OTEL_EXPORTER_OTLP_PROTOCOL` itself; overwriting
+  `Endpoint` afterwards replaces that already-suffixed URI with the bare host, and the collector 404s every export —
+  silently, since OTel's own export failures aren't logged by default. Confirmed against a real Jaeger instance
+  while implementing this issue (traces simply never arrived, with no error anywhere, until this was fixed).
 
 ## Configuration
 

@@ -2,10 +2,6 @@ using MechanicsSoftware.BillingService.Domain.Exceptions;
 
 namespace MechanicsSoftware.BillingService.Domain.ValueObjects;
 
-/// <summary>
-/// Pending → Confirmed | Failed | Cancelled; Confirmed → Refunded (Saga compensation).
-/// Failed, Cancelled and Refunded are final.
-/// </summary>
 public sealed class PaymentStatus(PaymentStatus.Status value) : ValueObject
 {
     public enum Status
@@ -19,7 +15,6 @@ public sealed class PaymentStatus(PaymentStatus.Status value) : ValueObject
 
     public Status Value => value;
 
-    /// <summary>No further transition is possible (a confirmed payment can still be refunded).</summary>
     public bool IsFinal => Value is Status.Failed or Status.Cancelled or Status.Refunded;
 
     public static PaymentStatus CreatePending() => new(Status.Pending);

@@ -10,10 +10,7 @@ public class MercadoPagoSignatureValidatorTests
     private const string RequestId = "bb56a2f1-6aae-46ac-982e-9dcd3581d08e";
     private const string Ts = "1742505638683";
 
-    // Reference values computed outside .NET (openssl dgst -sha256 -hmac my-webhook-secret):
-    // documented form, id lower-cased: 'id:ord01jq4s4ky8hwqasx1aw5v4f3e8;request-id:bb56a2f1-...;ts:1742505638683;'
     private const string ExpectedV1 = "940c1f391570af0cfc3bbe79a0044cae8452841a9e7ba68c0d5f404ebc3ef65f";
-    // form observed in the sandbox, id as received and ts in seconds: 'id:ORD01JQ4S4KY8HWQASX1AW5V4F3E8;request-id:bb56a2f1-...;ts:1742505638;'
     private const string ExpectedV1AsReceived = "d525620008898457b6a5aa672e8edf96f572a057b992d35c27b61d8cdf92376f";
     private const string ExpectedV1WithoutDataId = "49013eb14d8a186ecff8e4311fd879578a12e5338538c09609ff27392bfdd7d6";
 
@@ -29,7 +26,6 @@ public class MercadoPagoSignatureValidatorTests
     [Fact]
     public void IsValid_IdSignedAsReceived_ReturnsTrue()
     {
-        // What Mercado Pago actually sent for Order notifications in the sandbox (2026-10-26).
         Validator().IsValid($"ts=1742505638,v1={ExpectedV1AsReceived}", RequestId, DataId).Should().BeTrue();
     }
 
@@ -52,9 +48,9 @@ public class MercadoPagoSignatureValidatorTests
     }
 
     [Theory]
-    [InlineData("ORD01JQ4S4KY8HWQASX1AW5V4F3E9", RequestId, Ts)] // other order
-    [InlineData(DataId, "another-request", Ts)]                  // other request id
-    [InlineData(DataId, RequestId, "1742505638684")]             // replayed with another ts
+    [InlineData("ORD01JQ4S4KY8HWQASX1AW5V4F3E9", RequestId, Ts)]
+    [InlineData(DataId, "another-request", Ts)]
+    [InlineData(DataId, RequestId, "1742505638684")]
     public void IsValid_AnyFieldChanged_ReturnsFalse(string dataId, string requestId, string ts)
     {
         Validator().IsValid($"ts={ts},v1={ExpectedV1}", requestId, dataId).Should().BeFalse();

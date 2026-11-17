@@ -41,8 +41,6 @@ public class BudgetsEndpointTests(BillingApiFactory factory) : IClassFixture<Bil
     private Task<HttpResponseMessage> DecideAsync(string token, Guid budgetId, string decision) =>
         ClientAs(token).PostAsJsonAsync($"/api/budgets/{budgetId}/decision", new { decision });
 
-    // --- Generate -----------------------------------------------------------------------
-
     [Fact]
     public async Task Generate_AsStaff_Returns201WithPendingBudgetAndPublishesBudgetGenerated()
     {
@@ -126,8 +124,6 @@ public class BudgetsEndpointTests(BillingApiFactory factory) : IClassFixture<Bil
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
-    // --- Query --------------------------------------------------------------------------
-
     [Fact]
     public async Task Get_ExistingAndUnknownId_Returns200And404()
     {
@@ -161,8 +157,6 @@ public class BudgetsEndpointTests(BillingApiFactory factory) : IClassFixture<Bil
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
-
-    // --- Decision -----------------------------------------------------------------------
 
     [Fact]
     public async Task Decide_CustomerApprovesOwnBudget_Returns200AndPublishesBudgetApproved()
