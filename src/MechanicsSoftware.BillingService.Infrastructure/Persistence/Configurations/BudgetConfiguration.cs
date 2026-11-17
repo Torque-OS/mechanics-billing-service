@@ -20,6 +20,9 @@ public sealed class BudgetConfiguration : IEntityTypeConfiguration<Budget>
         builder.ToTable("budgets");
 
         builder.HasKey(b => b.Id);
+
+        builder.Property<uint>("Version").IsRowVersion();
+
         builder.Property(b => b.Id)
             .HasColumnName("id")
             .ValueGeneratedNever();

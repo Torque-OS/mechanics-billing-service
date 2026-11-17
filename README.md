@@ -64,9 +64,9 @@ Errors use `{ "error": "..." }`.
 | `POST` | `/api/budgets` | Staff | `201` new budget · `200` existing one for the same service order (idempotent) · `422` invalid snapshot (`BudgetFailed`) |
 | `GET` | `/api/budgets/{id}` | Staff | `200` · `404` |
 | `GET` | `/api/budgets?serviceOrderId={id}` | Staff | `200` · `404` · `400` without the parameter |
-| `POST` | `/api/budgets/{id}/decision` | Customer (own budget) or staff | `200` · `403` another customer's budget · `404` · `409` already decided |
+| `POST` | `/api/budgets/{id}/decision` | Customer (own budget) or staff | `200` · `403` another customer's budget · `404` · `409` already decided or decided concurrently |
 | `POST` | `/api/budgets/{id}/cancel` | Staff | `200` cancelled (QR cancelled / payment refunded) · `404` · `409` budget rejected · `502` Mercado Pago failure — repeat to retry |
-| `POST` | `/api/payments` | Customer (own budget) or staff | `201` new payment with `qrData` · `200` existing one for the budget · `409` budget not approved · `502` Mercado Pago failure |
+| `POST` | `/api/payments` | Customer (own budget) or staff | `201` new payment with `qrData` · `200` existing one for the budget (also for a concurrent request) · `409` budget not approved, or another request still creating it · `502` Mercado Pago failure |
 | `GET` | `/api/payments/{id}` | Staff | `200` · `404` |
 | `POST` | `/api/payments/{id}/verify` | Staff | `200` after re-reading the order from Mercado Pago · `502` |
 | `GET` | `/api/payments/{id}/qr.png` | **Public** | `200` QR image to scan · `409` payment no longer pending |
@@ -130,6 +130,14 @@ Mercado Pago → POST /api/payments/webhooks/mercadopago (topic "Order")
   lets someone pay this charge.
 - One payment per budget, for the approved total. An expired QR fails the payment (and, through the Saga,
   the order).
+- **Concurrent requests are safe.** The Mercado Pago order uses the budget id as `X-Idempotency-Key` and
+  `external_reference`, so two simultaneous `POST /api/payments` produce one order and one QR: Mercado Pago answers the
+  second call with `423 resource_locked` while the first is running, the service retries (0.5 s, 1 s, 2 s) and gets the
+  same order back, and the slower request returns the stored payment with `200` (`409` if it is still locked).
+- `payments` and `budgets` use optimistic concurrency on PostgreSQL's `xmin`. When a repeated webhook and
+  `/verify` confirm the same payment at the same time, the second write is rejected and its event is dropped with it
+  (same outbox transaction), so `PaymentConfirmed`/`PaymentFailed` leave once. Concurrent budget decisions or
+  cancellations over HTTP answer `409`; the `CancelBudget` consumer retries.
 - A refund reported by Mercado Pago (`refunded`, e.g. made in the panel) moves a `CONFIRMED` payment to `REFUNDED`
   without a Saga event; if the payment was still `PENDING`, it fails (`PaymentFailed`) — the money was not kept.
 

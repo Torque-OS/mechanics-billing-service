@@ -8,8 +8,8 @@ public sealed class VerifyPaymentHandler(IBillingDbContext db, PaymentSynchroniz
     {
         var payment = await db.Payments.FindPaymentAsync(id, cancellationToken);
 
-        await synchronizer.SyncAsync(payment, cancellationToken);
+        var current = await synchronizer.SyncAsync(payment, cancellationToken);
 
-        return PaymentResponse.From(payment);
+        return PaymentResponse.From(current);
     }
 }

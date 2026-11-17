@@ -3,6 +3,7 @@ using MechanicsSoftware.BillingService.Application.Exceptions;
 using MechanicsSoftware.BillingService.Domain.Entities;
 using MechanicsSoftware.BillingService.Domain.Exceptions;
 using MechanicsSoftware.BillingService.Domain.ValueObjects;
+using Microsoft.EntityFrameworkCore;
 
 namespace MechanicsSoftware.BillingService.Application.UseCases.Payments;
 
@@ -12,13 +13,13 @@ public sealed class PaymentSynchronizer(
     private static readonly HashSet<string> FailedStatuses =
         new(StringComparer.OrdinalIgnoreCase) { "canceled", "expired", "failed", "refunded" };
 
-    public async Task SyncAsync(Payment payment, CancellationToken cancellationToken = default)
+    public async Task<Payment> SyncAsync(Payment payment, CancellationToken cancellationToken = default)
     {
         if (payment.ProviderOrderId is null)
             throw new ConflictException("Payment has no provider order to verify.");
 
         if (payment.Status.IsFinal)
-            return;
+            return payment;
 
         var order = await mercadoPago.GetOrderAsync(payment.ProviderOrderId, cancellationToken);
 
@@ -26,7 +27,7 @@ public sealed class PaymentSynchronizer(
         if (payment.Status.Value == PaymentStatus.Status.Confirmed)
         {
             if (!string.Equals(order.Status, "refunded", StringComparison.OrdinalIgnoreCase))
-                return;
+                return payment;
 
             payment.Refund();
             historyEvent = "refunded";
@@ -46,12 +47,21 @@ public sealed class PaymentSynchronizer(
         }
         else
         {
-            return;
+            return payment;
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            db.DiscardChanges();
+            return await db.Payments.FindPaymentAsync(payment.Id, cancellationToken);
+        }
 
         await history.RecordAsync(Entry(payment, historyEvent, order), cancellationToken);
+        return payment;
     }
 
     internal static PaymentHistoryEntry Entry(
