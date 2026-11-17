@@ -283,14 +283,29 @@ ASPNETCORE_ENVIRONMENT=Development dotnet dotnet-ef migrations add <Name> \
   --output-dir Persistence/Migrations
 ```
 
-## Testing
+## Testing & Coverage Evidence
 
 ```bash
-dotnet test
+dotnet test --collect:"XPlat Code Coverage" --settings coverlet.runsettings
 ```
 
 Domain, application and persistence tests, plus endpoint tests that run the real HTTP pipeline
 (JWT, policies, error mapping) over EF InMemory — no PostgreSQL or broker needed.
+
+**Coverage (F4-27)** — 269 tests, measured on 2026-11-17 with the command above:
+
+| Project | Lines | Branches |
+|---|---|---|
+| Api | 91.8% | 81.8% |
+| Application | 100% | 100% |
+| Domain | 99.5% | 98.9% |
+| Infrastructure | 99.3% | 80.6% |
+| **Total** | **99.1%** | **91.5%** |
+
+`ci.yml` fails the build below 80% line coverage and posts the same table on every pull request.
+
+**Manual testing (F4-40)** — import `MechanicsBillingService.postman_collection.json` into Postman. The collection
+description explains where the token comes from and the order to run the requests in.
 
 ## Project layout
 
