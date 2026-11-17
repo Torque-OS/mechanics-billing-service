@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Mechanics Billing Service API (Fase 4)",
-    "description": "API collection for the Billing Service microservice (Budgets & Mercado Pago Payments) — FIAP POS Tech 15SOAT Fase 4.",
+    "description": "API collection for the Billing Service microservice (Budgets & Mercado Pago Payments) — FIAP POS Tech 15SOAT Fase 4.\n\n**Token:** the Billing Service has no login. Put a platform JWT in the `token` variable: a staff token from mechanics-software (`POST /api/auth/login`, `admin@mechanics.local` / `Admin@123` in Development) or a customer token from the CPF Lambda (`POST /auth` on the API Gateway). Most routes are staff only; customers can only decide and pay their own budget.\n\n**Order:** run Generate Budget, then Approve, then Start Payment. Those requests save `budgetId` and `paymentId` for the requests after them.\n\n**Deployed:** set `baseUrl` to the API Gateway URL; `/api/budgets` and `/api/payments` are routed to this service.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -153,6 +153,19 @@
           }
         },
         {
+          "name": "Get Payment by Budget ID",
+          "request": {
+            "method": "GET",
+            "description": "Staff only. Returns the payment of a budget, or 404 while there is none. The OS Service calls it to show the billing of a service order (F4-25).",
+            "url": {
+              "raw": "{{baseUrl}}/api/payments?budgetId={{budgetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments"],
+              "query": [{ "key": "budgetId", "value": "{{budgetId}}" }]
+            }
+          }
+        },
+        {
           "name": "Get Payment QR Image (Public)",
           "request": {
             "auth": { "type": "noauth" },
@@ -180,6 +193,7 @@
           "request": {
             "auth": { "type": "noauth" },
             "method": "POST",
+            "description": "The sample x-signature is not a valid HMAC, so this request returns 401. To test the webhook for real, use Simulate in the Mercado Pago Webhooks panel (see the README's sandbox setup), or call Verify Payment Status instead.",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
               { "key": "x-signature", "value": "ts=1700000000,v1=replace_with_hmac" },
